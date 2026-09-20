@@ -139,6 +139,13 @@ void            releasesleep(struct sleeplock*);
 int             holdingsleep(struct sleeplock*);
 void            initsleeplock(struct sleeplock*, char*);
 
+//shm.c
+void            shm_init(void);
+struct shmseg*  shm_find_by_key(int key);
+struct shmseg*  shm_find_by_id(int shmid);
+int             shm_create(int key, uint size, int perm);
+void            shm_free_segment(struct shmseg *seg);
+
 // string.c
 int             memcmp(const void*, const void*, uint);
 void*           memmove(void*, const void*, uint);

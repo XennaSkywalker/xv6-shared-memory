@@ -29,6 +29,7 @@ main(void)
   pinit();         // process table
   tvinit();        // trap vectors
   binit();         // buffer cache
+  shm_init();      // init global shared memory table
   fileinit();      // file table
   ideinit();       // disk 
   startothers();   // start other processors
