@@ -20,3 +20,7 @@
 #define SYS_link   19
 #define SYS_mkdir  20
 #define SYS_close  21
+#define SYS_shmget 22
+#define SYS_shmat  23
+#define SYS_shmdt  24
+#define SYS_shmctl 25
