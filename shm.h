@@ -21,7 +21,7 @@ struct shmid_ds {
 };
 
 struct shmseg {
-    int used;
+    int used; 
     int shmid;
     int key;
     uint shm_size;
@@ -43,5 +43,7 @@ struct shmseg* shm_find_by_shmid(int shmid);
 
 int shm_create(int key, uint size, int permissions);
 void shm_free(struct shmseg* seg);
+int shm_free_pages(struct shmseg *seg);
+int shm_alloc_pages(struct shmseg *seg);
 
 #endif
