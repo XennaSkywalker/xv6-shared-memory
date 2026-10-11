@@ -1,25 +1,16 @@
+//this header file contains kernel side info
+
 #ifndef SHM_H
 #define SHM_H
 
 #include "types.h"
 #include "spinlock.h"
+#include "shmuser.h"
 
 #define SHM_TABLE_MAX 64
 #define SHM_MAX_PAGES 256
 
-#define IPC_CREAT 01000
-#define IPC_EXCL 02000
-
-#define IPC_STAT 1
-#define IPC_RMID 2
-
-struct shmid_ds {
-    int shmid;
-    int key;
-    uint shm_size;
-    int tot_attached;
-};
-
+//we dont enforce permissions rn, need to enforce them
 struct shmseg {
     int used; 
     int shmid;
@@ -45,5 +36,7 @@ int shm_create(int key, uint size, int permissions);
 void shm_free(struct shmseg* seg);
 int shm_free_pages(struct shmseg *seg);
 int shm_alloc_pages(struct shmseg *seg);
+
+int shm_get(int key, uint size, int shmflg);
 
 #endif

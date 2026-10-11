@@ -4,7 +4,6 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
-#include "spinlock.h"
 #include "shm.h"
 
 struct shm_table shm_table;
@@ -68,6 +67,67 @@ shm_find_by_shmid(int shmid)
         }
     }
     return 0;
+}
+
+int
+shm_get(int key, uint size, int shmflg)
+{
+    struct shmseg *seg;
+    int shmid;
+    int permissions;
+
+    if (size == 0)
+        return -1;
+
+    //size exceeds possible size of a segment
+    if (size / PGSIZE + (size % PGSIZE != 0) > SHM_MAX_PAGES)
+        return -1;
+
+    permissions = shmflg & 0777;
+
+    acquire(&shm_table.lock);
+
+    //key == 0 signals IPC_PRIVATE which should always create a new segment
+    if (key == 0) {
+        shmid = shm_create(key, size, permissions);
+        release(&shm_table.lock);
+        return shmid;
+    }
+    
+    //find segment
+    seg = shm_find_by_key(key);
+
+    //segment with given key found
+    if (seg != 0) {
+        //both IPC_CREAT and IPC_EXCL cannot be present when a segment is already present
+        if ((shmflg & IPC_CREAT) && (shmflg & IPC_EXCL)) {
+            release(&shm_table.lock);
+            return -1;
+        }
+
+        //requested size > segment size, cannot happen
+        if (size > seg->shm_size) {
+            release(&shm_table.lock);
+            return -1;
+        }
+
+        shmid = seg->shmid;
+        release(&shm_table.lock);
+        return shmid;
+    }
+
+    //no existing segment + no IPC_CREAT
+    if (!(shmflg & IPC_CREAT)) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    //IPC_CREAT is given
+    //create the segment
+    shmid = shm_create(key, size, permissions);
+
+    release(&shm_table.lock);
+    return shmid;
 }
 
 

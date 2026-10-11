@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+#include "shm.h"
 
 int
 sys_fork(void)
@@ -93,8 +94,23 @@ sys_uptime(void)
 int
 sys_shmget(void)
 {
-  cprintf("sys_shmget called\n");
-  return 0;
+    int key;
+    int size;
+    int shmflg;
+
+    if (argint(0, &key) < 0)
+        return -1;
+
+    if (argint(1, &size) < 0)
+        return -1;
+
+    if (argint(2, &shmflg) < 0)
+        return -1;
+
+    if (size <= 0)
+        return -1;
+
+    return shm_get(key, (uint)size, shmflg);
 }
 
 int

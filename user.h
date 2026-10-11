@@ -1,5 +1,6 @@
 struct stat;
 struct rtcdate;
+struct shmid_ds;
 
 // system calls
 int fork(void);
@@ -23,10 +24,10 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
-int shmget(void);
-int shmat(void);
-int shmdt(void);
-int shmctl(void);
+int shmget(int key, int size, int shmflg);
+int shmat(int shmid, const void *shmaddr, int shmflg);
+int shmdt(const void *shmaddr);
+int shmctl(int shmid, int cmd, struct shmid_ds *buf);
 
 // ulib.c
 int stat(const char*, struct stat*);
