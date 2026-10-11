@@ -145,6 +145,10 @@ void            initsleeplock(struct sleeplock*, char*);
 //struct shmseg*  shm_find_by_shmid(int shmid);
 //int             shm_create(int key, uint size, int perm);
 //void            shm_free(struct shmseg *seg);
+int               shm_at(int shmid);
+int               shm_fork(struct proc *parent, struct proc *child);
+void              shm_detach_all(struct proc *p);
+void              shm_exec_detach(struct proc *p, pde_t *oldpgdir);
 
 // string.c
 int             memcmp(const void*, const void*, uint);
@@ -192,6 +196,8 @@ void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
+pde_t*          walkpgdir(pde_t*, const void*, int);
+int             mappages(pde_t*, void*, uint, uint, int);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

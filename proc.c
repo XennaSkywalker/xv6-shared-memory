@@ -88,6 +88,8 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  memset(p->shm_attachments, 0,
+       sizeof(p->shm_attachments));
 
   release(&ptable.lock);
 
@@ -196,6 +198,17 @@ fork(void)
     np->state = UNUSED;
     return -1;
   }
+
+  if (shm_fork(curproc, np) < 0) {
+    freevm(np->pgdir);
+
+    kfree(np->kstack);
+    np->kstack = 0;
+    np->state = UNUSED;
+
+    return -1;
+  }
+
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
@@ -260,6 +273,7 @@ exit(void)
         wakeup1(initproc);
     }
   }
+  shm_detach_all(curproc);
 
   // Jump into the scheduler, never to return.
   curproc->state = ZOMBIE;

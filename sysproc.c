@@ -116,8 +116,12 @@ sys_shmget(void)
 int
 sys_shmat(void)
 {
-  cprintf("sys_shmat called\n");
-  return 0;
+  int shmid;
+
+  if (argint(0, &shmid) < 0)
+    return -1;
+
+  return shm_at(shmid);
 }
 
 int

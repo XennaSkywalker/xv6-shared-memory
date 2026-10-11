@@ -14,6 +14,87 @@ static int next_shmid = 1;
 //shm_create() assumes the lock is already held.
 //shm_free() assumes the lock is held when modifying a segment in the global table.
 
+static void
+shm_unmap_pages(pde_t *pgdir, uint addr, uint npages)
+{
+    uint i;
+
+    for (i = 0; i < npages; i++) {
+        pte_t *pte;
+
+        pte = walkpgdir(
+            pgdir,
+            (void *)(addr + i * PGSIZE),
+            0
+        );
+
+        if (pte && (*pte & PTE_P))
+            *pte = 0;
+    }
+}
+
+static int
+shm_range_free(pde_t *pgdir, uint addr, uint npages)
+{
+    uint i;
+    pte_t *pte;
+
+    for (i = 0; i < npages; i++) {
+        pte = walkpgdir(pgdir,
+                        (void *)(addr + i * PGSIZE), 0);
+
+        if (pte != 0 && (*pte & PTE_P))
+            return 0;
+    }
+
+    return 1;
+}
+
+static void
+shm_detach_from_pgdir(struct proc *p, pde_t *pgdir)
+{
+    struct shmseg *seg;
+    struct shm_attachment *attachment;
+    uint npages;
+    uint i;
+
+    if (p == 0 || pgdir == 0)
+        return;
+
+    acquire(&shm_table.lock);
+
+    for (i = 0; i < SHM_MAX_ATTACHED; i++) {
+        attachment = &p->shm_attachments[i];
+
+        if (!attachment->used)
+            continue;
+
+        seg = shm_lookup(attachment->shmid, 1);
+
+        if (seg != 0) {
+            npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
+
+            shm_unmap_pages(
+                pgdir,
+                attachment->addr,
+                npages
+            );
+
+            if (seg->tot_attached > 0)
+                seg->tot_attached--;
+
+            if (seg->marked_delete &&
+                seg->tot_attached == 0) {
+                shm_free(seg);
+                }
+        }
+
+        memset(attachment, 0, sizeof(*attachment));
+    }
+
+    release(&shm_table.lock);
+}
+
 void
 shm_init(void)
 {
@@ -254,5 +335,286 @@ bad:
     }
 
     return -1;
+}
+
+int
+shm_at(int shmid)
+{
+    struct proc *p;
+    struct shmseg *seg;
+    struct shmseg *other;
+    uint addr;
+    uint npages;
+    uint other_addr;
+    uint other_npages;
+    uint i;
+    uint j;
+    int slot;
+    int overlap;
+    int found;
+
+    p = myproc();
+
+    if (p == 0) return -1;
+
+    acquire(&shm_table.lock);
+
+    seg = 0;
+
+    for (i = 0; i < SHM_TABLE_MAX; i++) {
+        if (shm_table.seg[i].used &&
+            shm_table.seg[i].shmid == shmid &&
+            !shm_table.seg[i].marked_delete) {
+        seg = &shm_table.seg[i];
+        break;
+        }
+    }
+
+    if (seg == 0) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    slot = -1;
+
+    for (i = 0; i < SHM_MAX_ATTACHED; i++) {
+        if (p->shm_attachments[i].used &&
+            p->shm_attachments[i].shmid == shmid) {
+        release(&shm_table.lock);
+        return -1;
+        }
+
+        if (!p->shm_attachments[i].used && slot == -1)
+        slot = i;
+    }
+
+    if (slot == -1) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
+
+    if (npages == 0 || npages > SHM_MAX_PAGES) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    addr = SHM_BASE;
+    found = 0;
+
+    while (addr < KERNBASE &&
+            npages <= (KERNBASE - addr) / PGSIZE) {
+        overlap = 0;
+
+    /*
+     * Check overlap with the process's ordinary address space.
+     */
+        if (addr < p->sz &&
+            p->sz - addr >= PGSIZE) {
+        overlap = 1;
+        }
+
+    /*
+     * Check overlap with existing shared-memory attachments.
+     */
+        for (i = 0; i < SHM_MAX_ATTACHED && !overlap; i++) {
+            if (!p->shm_attachments[i].used) continue;
+
+            other = 0;
+
+            for (j = 0; j < SHM_TABLE_MAX; j++) {
+                if (shm_table.seg[j].used &&
+                    shm_table.seg[j].shmid ==
+                    p->shm_attachments[i].shmid) {
+                    other = &shm_table.seg[j];
+                    break;
+                    }
+            }
+
+            if (other == 0) continue;
+
+            other_addr = p->shm_attachments[i].addr;
+            other_npages = (other->shm_size + PGSIZE - 1) / PGSIZE;
+
+            if (addr < other_addr + other_npages * PGSIZE &&
+                other_addr < addr + npages * PGSIZE) {
+                overlap = 1;
+            }
+        }
+
+    /*
+     * Check actual page-table entries.
+     */
+        if (!overlap &&
+            shm_range_free(p->pgdir, addr, npages)) {
+            found = 1;
+            break;
+        }
+
+    /*
+     * Advance to the next page-aligned candidate.
+     */
+        if (addr > KERNBASE - PGSIZE) break;
+
+        addr += PGSIZE;
+    }
+
+    if (!found) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+  /*
+   * Map the segment's physical pages into this process.
+   */
+    for (i = 0; i < npages; i++) {
+        if (mappages(p->pgdir,
+                 (void *)(addr + i * PGSIZE),
+                 PGSIZE,
+                 seg->pages[i],
+                 PTE_U | PTE_W) < 0) {
+            shm_unmap_pages(p->pgdir, addr, i);
+            release(&shm_table.lock);
+            return -1;
+        }
+    }
+
+  /*
+   * Record the attachment only after all mappings succeed.
+   */
+    p->shm_attachments[slot].used = 1;
+    p->shm_attachments[slot].shmid = shmid;
+    p->shm_attachments[slot].addr = addr;
+
+    seg->tot_attached++;
+
+    release(&shm_table.lock);
+
+    return (int)addr;
+}
+
+int
+shm_fork(struct proc *parent, struct proc *child)
+{
+    int i, j;
+      struct shmseg *seg;
+      uint npages;
+      uint mapped;
+
+      memset(child->shm_attachments, 0,
+             sizeof(child->shm_attachments));
+
+      acquire(&shm_table.lock);
+
+      for (i = 0; i < SHM_MAX_ATTACHED; i++) {
+        if (!parent->shm_attachments[i].used)
+          continue;
+
+        seg = 0;
+
+        for (j = 0; j < SHM_TABLE_MAX; j++) {
+          if (shm_table.seg[j].used &&
+              shm_table.seg[j].shmid ==
+              parent->shm_attachments[i].shmid) {
+            seg = &shm_table.seg[j];
+            break;
+          }
+        }
+
+        if (seg == 0)
+          goto rollback;
+
+        npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
+        mapped = 0;
+
+        for (j = 0; j < npages; j++) {
+          uint va = parent->shm_attachments[i].addr
+                    + j * PGSIZE;
+
+          if (mappages(child->pgdir, (void *)va,
+                       PGSIZE, seg->pages[j],
+                       PTE_U | PTE_W) < 0) {
+            shm_unmap_pages(child->pgdir,
+                            parent->shm_attachments[i].addr,
+                            mapped);
+            goto rollback;
+          }
+
+          mapped++;
+        }
+
+        for (j = 0; j < SHM_MAX_ATTACHED; j++) {
+          if (!child->shm_attachments[j].used)
+            break;
+        }
+
+        if (j == SHM_MAX_ATTACHED) {
+          shm_unmap_pages(child->pgdir,
+                          parent->shm_attachments[i].addr,
+                          npages);
+          goto rollback;
+        }
+
+        child->shm_attachments[j].used = 1;
+        child->shm_attachments[j].shmid =
+            parent->shm_attachments[i].shmid;
+        child->shm_attachments[j].addr =
+            parent->shm_attachments[i].addr;
+
+        seg->tot_attached++;
+      }
+
+      release(&shm_table.lock);
+      return 0;
+
+    rollback:
+      for (i = 0; i < SHM_MAX_ATTACHED; i++) {
+        if (!child->shm_attachments[i].used)
+          continue;
+
+        seg = 0;
+
+        for (j = 0; j < SHM_TABLE_MAX; j++) {
+          if (shm_table.seg[j].used &&
+              shm_table.seg[j].shmid ==
+              child->shm_attachments[i].shmid) {
+            seg = &shm_table.seg[j];
+            break;
+          }
+        }
+
+        if (seg != 0) {
+          npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
+
+          shm_unmap_pages(child->pgdir,
+                          child->shm_attachments[i].addr,
+                          npages);
+
+          if (seg->tot_attached > 0)
+            seg->tot_attached--;
+        }
+
+        memset(&child->shm_attachments[i], 0,
+               sizeof(child->shm_attachments[i]));
+      }
+
+    release(&shm_table.lock);
+    return -1;
+}
+
+void
+shm_detach_all(struct proc *p)
+{
+    if (p == 0)
+        return;
+
+    shm_detach_from_pgdir(p, p->pgdir);
+}
+
+void
+shm_exec_detach(struct proc *p, pde_t *oldpgdir)
+{
+    shm_detach_from_pgdir(p, oldpgdir);
 }
 

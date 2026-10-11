@@ -9,6 +9,8 @@
 
 #define SHM_TABLE_MAX 64
 #define SHM_MAX_PAGES 256
+#define SHM_MAX_ATTACHED 16
+#define SHM_BASE 0x60000000
 
 //we dont enforce permissions rn, need to enforce them
 struct shmseg {
@@ -25,6 +27,12 @@ struct shmseg {
 struct shm_table {
     struct spinlock lock;
     struct shmseg seg[SHM_TABLE_MAX];
+};
+
+struct shm_attachment {
+    int used;
+    int shmid;
+    uint addr;
 };
 
 void shm_init(void);
