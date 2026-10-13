@@ -14,6 +14,19 @@ static int next_shmid = 1;
 //shm_create() assumes the lock is already held.
 //shm_free() assumes the lock is held when modifying a segment in the global table.
 
+static struct shmseg *
+shm_lookup(int shmid , int include_deleted) {
+    for (int i = 0; i < SHM_TABLE_MAX; i++) {
+        if (shm_table.seg[i].used &&
+            shm_table.seg[i].shmid == shmid &&
+            (include_deleted ||
+             !shm_table.seg[i].marked_delete)) {
+            return &shm_table.seg[i];
+        }
+    }
+    return 0;
+}
+
 static void
 shm_unmap_pages(pde_t *pgdir, uint addr, uint npages)
 {
@@ -93,6 +106,81 @@ shm_detach_from_pgdir(struct proc *p, pde_t *pgdir)
     }
 
     release(&shm_table.lock);
+}
+
+static int
+shm_addr_free(struct proc *p, uint addr, uint npages)
+{
+    struct shmseg *other;
+    struct shm_attachment *attachment;
+    uint end;
+    uint other_addr;
+    uint other_npages;
+    uint other_end;
+    uint i;
+
+    if (p == 0 || npages == 0)
+        return 0;
+
+    if (addr < SHM_BASE || addr >= KERNBASE)
+        return 0;
+
+    if (npages > (KERNBASE - addr) / PGSIZE)
+        return 0;
+
+    end = addr + npages * PGSIZE;
+
+    /*
+     * Check the ordinary process address space.
+     */
+    if (addr < p->sz)
+        return 0;
+
+    /*
+     * Check existing shared memory attachments.
+     */
+    for (i = 0; i < SHM_MAX_ATTACHED; i++) {
+        attachment = &p->shm_attachments[i];
+
+        if (!attachment->used)
+            continue;
+
+        other = shm_lookup(attachment->shmid, 1);
+
+        if (other == 0)
+            continue;
+
+        other_addr = attachment->addr;
+
+        other_npages =
+            (other->shm_size + PGSIZE - 1) / PGSIZE;
+
+        if (other_npages == 0)
+            continue;
+
+        if (other_addr >= KERNBASE ||
+            other_npages > (KERNBASE - other_addr) / PGSIZE)
+            return 0;
+
+        other_end = other_addr + other_npages * PGSIZE;
+
+        /*
+         * Two half-open intervals overlap if:
+         *
+         * addr < other_end &&
+         * other_addr < end
+         */
+        if (addr < other_end && other_addr < end)
+            return 0;
+    }
+
+    /*
+     * Check the actual page table.
+     */
+    if (!shm_range_free(p->pgdir, addr, npages))
+        return 0;
+
+    return 1;
 }
 
 void
@@ -338,54 +426,76 @@ bad:
 }
 
 int
-shm_at(int shmid)
+shm_at(int shmid, uint shmaddr, int shmflg)
 {
     struct proc *p;
     struct shmseg *seg;
-    struct shmseg *other;
     uint addr;
     uint npages;
-    uint other_addr;
-    uint other_npages;
     uint i;
-    uint j;
     int slot;
-    int overlap;
+    int perm;
     int found;
+    int requested;
 
     p = myproc();
 
-    if (p == 0) return -1;
+    if (p == 0)
+        return -1;
+
+    /*
+     * Reject unsupported flags.
+     */
+    if (shmflg & ~(SHM_RDONLY | SHM_RND))
+        return -1;
+
+    /*
+     * A zero address requests automatic placement.
+     */
+    requested = (shmaddr != 0);
+
+    /*
+     * Normalize a requested address.
+     */
+    if (requested) {
+        if (shmflg & SHM_RND) {
+            shmaddr &= ~(SHMLBA - 1);
+        } else if (shmaddr % PGSIZE != 0) {
+            return -1;
+        }
+
+        if (shmaddr < SHM_BASE ||
+            shmaddr >= KERNBASE)
+            return -1;
+    }
 
     acquire(&shm_table.lock);
 
-    seg = 0;
-
-    for (i = 0; i < SHM_TABLE_MAX; i++) {
-        if (shm_table.seg[i].used &&
-            shm_table.seg[i].shmid == shmid &&
-            !shm_table.seg[i].marked_delete) {
-        seg = &shm_table.seg[i];
-        break;
-        }
-    }
+    /*
+     * Find the requested shared memory segment.
+     */
+    seg = shm_lookup(shmid, 0);
 
     if (seg == 0) {
         release(&shm_table.lock);
         return -1;
     }
 
+    /*
+     * Find an available attachment slot.
+     * Reject duplicate attachments.
+     */
     slot = -1;
 
     for (i = 0; i < SHM_MAX_ATTACHED; i++) {
         if (p->shm_attachments[i].used &&
             p->shm_attachments[i].shmid == shmid) {
-        release(&shm_table.lock);
-        return -1;
+            release(&shm_table.lock);
+            return -1;
         }
 
         if (!p->shm_attachments[i].used && slot == -1)
-        slot = i;
+            slot = i;
     }
 
     if (slot == -1) {
@@ -393,6 +503,9 @@ shm_at(int shmid)
         return -1;
     }
 
+    /*
+     * Calculate the number of pages required.
+     */
     npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
 
     if (npages == 0 || npages > SHM_MAX_PAGES) {
@@ -400,64 +513,40 @@ shm_at(int shmid)
         return -1;
     }
 
-    addr = SHM_BASE;
+    /*
+     * Select the virtual address.
+     *
+     * If the caller supplied an address, use that
+     * exact address after any requested rounding.
+     *
+     * Otherwise, search from SHM_BASE.
+     */
     found = 0;
 
-    while (addr < KERNBASE &&
-            npages <= (KERNBASE - addr) / PGSIZE) {
-        overlap = 0;
+    if (requested) {
+        addr = shmaddr;
 
-    /*
-     * Check overlap with the process's ordinary address space.
-     */
-        if (addr < p->sz &&
-            p->sz - addr >= PGSIZE) {
-        overlap = 1;
-        }
-
-    /*
-     * Check overlap with existing shared-memory attachments.
-     */
-        for (i = 0; i < SHM_MAX_ATTACHED && !overlap; i++) {
-            if (!p->shm_attachments[i].used) continue;
-
-            other = 0;
-
-            for (j = 0; j < SHM_TABLE_MAX; j++) {
-                if (shm_table.seg[j].used &&
-                    shm_table.seg[j].shmid ==
-                    p->shm_attachments[i].shmid) {
-                    other = &shm_table.seg[j];
-                    break;
-                    }
-            }
-
-            if (other == 0) continue;
-
-            other_addr = p->shm_attachments[i].addr;
-            other_npages = (other->shm_size + PGSIZE - 1) / PGSIZE;
-
-            if (addr < other_addr + other_npages * PGSIZE &&
-                other_addr < addr + npages * PGSIZE) {
-                overlap = 1;
-            }
-        }
-
-    /*
-     * Check actual page-table entries.
-     */
-        if (!overlap &&
-            shm_range_free(p->pgdir, addr, npages)) {
+        if (shm_addr_free(p, addr, npages))
             found = 1;
-            break;
+    } else {
+        addr = SHM_BASE;
+
+        while (addr < KERNBASE &&
+               npages <= (KERNBASE - addr) / PGSIZE) {
+
+            if (shm_addr_free(p, addr, npages)) {
+                found = 1;
+                break;
+            }
+
+            /*
+             * Advance to the next page-aligned address.
+             */
+            if (addr > KERNBASE - PGSIZE)
+                break;
+
+            addr += PGSIZE;
         }
-
-    /*
-     * Advance to the next page-aligned candidate.
-     */
-        if (addr > KERNBASE - PGSIZE) break;
-
-        addr += PGSIZE;
     }
 
     if (!found) {
@@ -465,24 +554,43 @@ shm_at(int shmid)
         return -1;
     }
 
-  /*
-   * Map the segment's physical pages into this process.
-   */
+    /*
+     * Set mapping permissions.
+     *
+     * All attachments are user-accessible.
+     * Writable access is omitted for SHM_RDONLY.
+     */
+    perm = PTE_U;
+
+    if (!(shmflg & SHM_RDONLY))
+        perm |= PTE_W;
+
+    /*
+     * Map the segment's existing physical pages.
+     */
     for (i = 0; i < npages; i++) {
-        if (mappages(p->pgdir,
-                 (void *)(addr + i * PGSIZE),
-                 PGSIZE,
-                 seg->pages[i],
-                 PTE_U | PTE_W) < 0) {
+        if (mappages(
+                p->pgdir,
+                (void *)(addr + i * PGSIZE),
+                PGSIZE,
+                seg->pages[i],
+                perm) < 0) {
+
+            /*
+             * Remove any mappings created so far.
+             * Do not free the shared physical pages.
+             */
             shm_unmap_pages(p->pgdir, addr, i);
+
             release(&shm_table.lock);
             return -1;
         }
     }
 
-  /*
-   * Record the attachment only after all mappings succeed.
-   */
+    /*
+     * Record the attachment only after all mappings
+     * have succeeded.
+     */
     p->shm_attachments[slot].used = 1;
     p->shm_attachments[slot].shmid = shmid;
     p->shm_attachments[slot].addr = addr;
@@ -491,6 +599,9 @@ shm_at(int shmid)
 
     release(&shm_table.lock);
 
+    /*
+     * Return the starting virtual address.
+     */
     return (int)addr;
 }
 

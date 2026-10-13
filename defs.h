@@ -145,10 +145,9 @@ void            initsleeplock(struct sleeplock*, char*);
 //struct shmseg*  shm_find_by_shmid(int shmid);
 //int             shm_create(int key, uint size, int perm);
 //void            shm_free(struct shmseg *seg);
-int               shm_at(int shmid);
-int               shm_fork(struct proc *parent, struct proc *child);
-void              shm_detach_all(struct proc *p);
-void              shm_exec_detach(struct proc *p, pde_t *oldpgdir);
+// int               shm_fork(struct proc *parent, struct proc *child);
+// void              shm_detach_all(struct proc *p);
+// void              shm_exec_detach(struct proc *p, pde_t *oldpgdir);
 
 // string.c
 int             memcmp(const void*, const void*, uint);

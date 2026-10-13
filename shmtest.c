@@ -1,3 +1,4 @@
+#include "shm.h"
 #include "types.h"
 #include "stat.h"
 #include "user.h"
@@ -8,8 +9,12 @@ main(void)
 {
     int shmid;
     int shmid2;
+    int shmid3;
+    int shmid4;
     char *shared;
     char *shared2;
+    char *shared3;
+    char *shared4;
     int pid;
     int status;
 
@@ -25,7 +30,7 @@ main(void)
     }
 
     // Attach the segment.
-    shared = (char *)shmat(shmid);
+    shared = (char *)shmat(shmid, 0 , 0);
 
     if ((uint)shared == (uint)-1) {
         printf(1, "FAIL: shmat could not attach the segment\n");
@@ -48,7 +53,7 @@ main(void)
     }
 
     // Attaching the same segment twice should fail.
-    shared2 = (char *)shmat(shmid);
+    shared2 = (char *)shmat(shmid, 0, 0);
 
     if ((uint)shared2 == (uint)-1) {
         printf(1, "PASS: Duplicate attachment rejected\n");
@@ -64,7 +69,7 @@ main(void)
         exit();
     }
 
-    shared2 = (char *)shmat(shmid2);
+    shared2 = (char *)shmat(shmid2, 0, 0);
 
     if ((uint)shared2 == (uint)-1) {
         printf(1, "FAIL: Could not attach second segment\n");
@@ -78,6 +83,47 @@ main(void)
     } else {
         printf(1, "FAIL: Independent segment test\n");
     }
+
+    //Test RND Flag
+    printf(1, "===== SHM_RND TEST =====\n");
+    shmid3 = shmget(100, 4096, IPC_CREAT | 0666);
+    printf(1, "shmget returned: %d\n", shmid3);
+
+    if (shmid3 < 0) {
+        printf(1, "FAIL: Could not create shared-memory segment\n");
+        exit();
+    }
+
+    // Attach the segment.
+    shared3 = (char *)shmat(shmid3, 0x71000123, SHM_RND);
+
+    if ((uint)shared3 != 0x71000000) {
+        printf(1, "FAIL: SHM_RND Failed\n");
+        exit();
+    }
+
+    printf(1, "Rounding Successful: %p\n", shared3);
+    shared3[0] = 'X';
+    if (shared3[0] != 'X') {
+        printf(1, "FAIL: Read/write shared memory\n");
+        exit();
+    }
+    printf(1, "PASS: Read/write shared memory\n");
+
+    //Test RD_ONLY memory
+    /*printf(1, "===== SHM_RD_ONLY TEST =====\n");
+    shmid = shmget(200, 4096, IPC_CREAT | 0666);
+    shared4 = (char*)shmat(shmid, 0, SHM_RDONLY);
+    if ((uint)shared4 == (uint)-1) {
+        printf(1, "FAIL: SHM_RD_ONLY Failed\n");
+        exit();
+    }
+    shared4[0] = 'X';
+    if (shared4[0] == 'X') {
+        printf(1, "FAIL: Read only shared memory\n");
+        exit();
+    }
+    printf(1, "PASS: Read/write shared memory\n");*/
 
     // Test shared-memory inheritance across fork.
     pid = fork();

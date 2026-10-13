@@ -117,11 +117,17 @@ int
 sys_shmat(void)
 {
   int shmid;
+  uint addr;
+  int shmflg;
 
   if (argint(0, &shmid) < 0)
     return -1;
+  if (argint(1, &addr) < 0)
+    return -1;
+  if (argint(2, &shmflg) < 0)
+    return -1;
 
-  return shm_at(shmid);
+  return shm_at(shmid, addr, shmflg);
 }
 
 int

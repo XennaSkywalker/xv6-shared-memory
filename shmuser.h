@@ -6,6 +6,9 @@
 #define IPC_PRIVATE 0
 #define IPC_CREAT   01000
 #define IPC_EXCL    02000
+#define SHM_RDONLY  0x01
+#define SHM_RND     0x02
+#define SHMLBA      PGSIZE
 
 #define IPC_STAT 1
 #define IPC_RMID 2
