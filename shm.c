@@ -14,6 +14,7 @@ static int next_shmid = 1;
 //shm_create() assumes the lock is already held.
 //shm_free() assumes the lock is held when modifying a segment in the global table.
 
+//Searches for the shm segment for the global shared memory table using a given shmid
 static struct shmseg *
 shm_lookup(int shmid , int include_deleted) {
     for (int i = 0; i < SHM_TABLE_MAX; i++) {
@@ -27,6 +28,7 @@ shm_lookup(int shmid , int include_deleted) {
     return 0;
 }
 
+//Given the pgdir , addr and no of pages...unmap all the pages from the procs pgdir.
 static void
 shm_unmap_pages(pde_t *pgdir, uint addr, uint npages)
 {
@@ -46,6 +48,7 @@ shm_unmap_pages(pde_t *pgdir, uint addr, uint npages)
     }
 }
 
+//Checks if a given range of VA is unallocated in the proc's pgdir.
 static int
 shm_range_free(pde_t *pgdir, uint addr, uint npages)
 {
@@ -63,6 +66,7 @@ shm_range_free(pde_t *pgdir, uint addr, uint npages)
     return 1;
 }
 
+//Detach or unmap all the shared memory segments from the proc's pgdir.
 static void
 shm_detach_from_pgdir(struct proc *p, pde_t *pgdir)
 {
@@ -108,6 +112,7 @@ shm_detach_from_pgdir(struct proc *p, pde_t *pgdir)
     release(&shm_table.lock);
 }
 
+//Checks if the shared memory segment occupied overlaps with any other existing shared memory segment
 static int
 shm_addr_free(struct proc *p, uint addr, uint npages)
 {
@@ -130,15 +135,11 @@ shm_addr_free(struct proc *p, uint addr, uint npages)
 
     end = addr + npages * PGSIZE;
 
-    /*
-     * Check the ordinary process address space.
-     */
+    //Addr must be greater than proc's normal allocation size.
     if (addr < p->sz)
         return 0;
 
-    /*
-     * Check existing shared memory attachments.
-     */
+    //Check existing shared memory attachments.
     for (i = 0; i < SHM_MAX_ATTACHED; i++) {
         attachment = &p->shm_attachments[i];
 
@@ -164,19 +165,12 @@ shm_addr_free(struct proc *p, uint addr, uint npages)
 
         other_end = other_addr + other_npages * PGSIZE;
 
-        /*
-         * Two half-open intervals overlap if:
-         *
-         * addr < other_end &&
-         * other_addr < end
-         */
+        //Check if the other addr will overlap with the current addr we are trying to check.
         if (addr < other_end && other_addr < end)
             return 0;
     }
 
-    /*
-     * Check the actual page table.
-     */
+    //Check the actual page table.
     if (!shm_range_free(p->pgdir, addr, npages))
         return 0;
 
@@ -443,20 +437,16 @@ shm_at(int shmid, uint shmaddr, int shmflg)
     if (p == 0)
         return -1;
 
-    /*
-     * Reject unsupported flags.
-     */
+    // Unsupported Flags cause exit.
     if (shmflg & ~(SHM_RDONLY | SHM_RND))
         return -1;
 
-    /*
-     * A zero address requests automatic placement.
-     */
+    //A zero address requests automatic placement.
     requested = (shmaddr != 0);
 
-    /*
-     * Normalize a requested address.
-     */
+    //If RND enabled round off to nearest lower page alignment.
+    //If no RND and addr not page aligned exit.
+    //Also checks if addr is in a valid virtual addr range
     if (requested) {
         if (shmflg & SHM_RND) {
             shmaddr &= ~(SHMLBA - 1);
@@ -471,9 +461,7 @@ shm_at(int shmid, uint shmaddr, int shmflg)
 
     acquire(&shm_table.lock);
 
-    /*
-     * Find the requested shared memory segment.
-     */
+    //shm_lookup finds the requested shared memory segment with or without include_deleted flag.
     seg = shm_lookup(shmid, 0);
 
     if (seg == 0) {
@@ -481,10 +469,8 @@ shm_at(int shmid, uint shmaddr, int shmflg)
         return -1;
     }
 
-    /*
-     * Find an available attachment slot.
-     * Reject duplicate attachments.
-     */
+    //Find the first available attachment slot.
+    //Reject duplicate attachments.
     slot = -1;
 
     for (i = 0; i < SHM_MAX_ATTACHED; i++) {
@@ -503,9 +489,7 @@ shm_at(int shmid, uint shmaddr, int shmflg)
         return -1;
     }
 
-    /*
-     * Calculate the number of pages required.
-     */
+    //Calculate the number of pages required.
     npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
 
     if (npages == 0 || npages > SHM_MAX_PAGES) {
@@ -513,35 +497,30 @@ shm_at(int shmid, uint shmaddr, int shmflg)
         return -1;
     }
 
-    /*
-     * Select the virtual address.
-     *
-     * If the caller supplied an address, use that
-     * exact address after any requested rounding.
-     *
-     * Otherwise, search from SHM_BASE.
-     */
+    //Start looking for a suitable virtual addr if not provided from SHM_BASE to KERNBASE by first found basis
+    //If addr provided (after rounding if needed) use that addr instead and if allocation not possible exit.
     found = 0;
 
     if (requested) {
         addr = shmaddr;
 
+        //shm_addr_free checks if addr + npages * PAGESIZE is free
         if (shm_addr_free(p, addr, npages))
             found = 1;
     } else {
         addr = SHM_BASE;
 
+        //addr less than KERNBASE and limit addr + npages * PAGESIZE also below KERNBASE
         while (addr < KERNBASE &&
                npages <= (KERNBASE - addr) / PGSIZE) {
 
+            //Again shm_addr_free used to check free allocation possible
             if (shm_addr_free(p, addr, npages)) {
                 found = 1;
                 break;
             }
 
-            /*
-             * Advance to the next page-aligned address.
-             */
+            //if current addr not possible to allocate...increment addr by PAGESIZE for pg alignment
             if (addr > KERNBASE - PGSIZE)
                 break;
 
@@ -554,20 +533,14 @@ shm_at(int shmid, uint shmaddr, int shmflg)
         return -1;
     }
 
-    /*
-     * Set mapping permissions.
-     *
-     * All attachments are user-accessible.
-     * Writable access is omitted for SHM_RDONLY.
-     */
+    //Permissions for shared memory are set.
+    //Incase of SHM_RDONLY , read only flag is set.
     perm = PTE_U;
 
     if (!(shmflg & SHM_RDONLY))
         perm |= PTE_W;
 
-    /*
-     * Map the segment's existing physical pages.
-     */
+    //Map the segment's existing physical pages to the available virtual address found.
     for (i = 0; i < npages; i++) {
         if (mappages(
                 p->pgdir,
@@ -576,10 +549,8 @@ shm_at(int shmid, uint shmaddr, int shmflg)
                 seg->pages[i],
                 perm) < 0) {
 
-            /*
-             * Remove any mappings created so far.
-             * Do not free the shared physical pages.
-             */
+            //If all pages were unable to be mapped then rollback the exsisting mapped pages
+            //Only remove the mappings from the procs pgdir . Do not deallocate the pages.
             shm_unmap_pages(p->pgdir, addr, i);
 
             release(&shm_table.lock);
@@ -587,10 +558,7 @@ shm_at(int shmid, uint shmaddr, int shmflg)
         }
     }
 
-    /*
-     * Record the attachment only after all mappings
-     * have succeeded.
-     */
+    //Record the attachment only after all mappings have succeeded.
     p->shm_attachments[slot].used = 1;
     p->shm_attachments[slot].shmid = shmid;
     p->shm_attachments[slot].addr = addr;
@@ -599,9 +567,7 @@ shm_at(int shmid, uint shmaddr, int shmflg)
 
     release(&shm_table.lock);
 
-    /*
-     * Return the starting virtual address.
-     */
+    //Return the starting virtual address.
     return (int)addr;
 }
 
@@ -609,40 +575,46 @@ int
 shm_fork(struct proc *parent, struct proc *child)
 {
     int i, j;
-      struct shmseg *seg;
-      uint npages;
-      uint mapped;
+    struct shmseg *seg;
+    uint npages;
+    uint mapped;
 
-      memset(child->shm_attachments, 0,
-             sizeof(child->shm_attachments));
+    //Init the child proc's shm_attachment table
+    memset(child->shm_attachments, 0,
+        sizeof(child->shm_attachments));
 
-      acquire(&shm_table.lock);
+    acquire(&shm_table.lock);
 
-      for (i = 0; i < SHM_MAX_ATTACHED; i++) {
+    //Copy the parent's shm mapping to the child aswell.
+    for (i = 0; i < SHM_MAX_ATTACHED; i++) {
+        //Only valid parent attachements mapped into child.
         if (!parent->shm_attachments[i].used)
           continue;
 
         seg = 0;
-
+        //search for the segment in global shm_table and if present init the seg
         for (j = 0; j < SHM_TABLE_MAX; j++) {
-          if (shm_table.seg[j].used &&
+            if (shm_table.seg[j].used &&
               shm_table.seg[j].shmid ==
               parent->shm_attachments[i].shmid) {
-            seg = &shm_table.seg[j];
-            break;
-          }
+                seg = &shm_table.seg[j];
+                break;
+            }
         }
 
         if (seg == 0)
           goto rollback;
 
+        //Init the number of pages that need to be mapped to the child from that parent's shared segment.
         npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
         mapped = 0;
 
+        //Map the parent's shared segment to the child's shm_attachments table using same VA as parent.
         for (j = 0; j < npages; j++) {
           uint va = parent->shm_attachments[i].addr
                     + j * PGSIZE;
 
+          //Rollback if mapping not possible.
           if (mappages(child->pgdir, (void *)va,
                        PGSIZE, seg->pages[j],
                        PTE_U | PTE_W) < 0) {
@@ -655,11 +627,13 @@ shm_fork(struct proc *parent, struct proc *child)
           mapped++;
         }
 
+        //Finds a valid slot in child attachment table to record the entry.
         for (j = 0; j < SHM_MAX_ATTACHED; j++) {
           if (!child->shm_attachments[j].used)
             break;
         }
 
+        //No slot available leads to exit.
         if (j == SHM_MAX_ATTACHED) {
           shm_unmap_pages(child->pgdir,
                           parent->shm_attachments[i].addr,
@@ -668,10 +642,8 @@ shm_fork(struct proc *parent, struct proc *child)
         }
 
         child->shm_attachments[j].used = 1;
-        child->shm_attachments[j].shmid =
-            parent->shm_attachments[i].shmid;
-        child->shm_attachments[j].addr =
-            parent->shm_attachments[i].addr;
+        child->shm_attachments[j].shmid = parent->shm_attachments[i].shmid;
+        child->shm_attachments[j].addr = parent->shm_attachments[i].addr;
 
         seg->tot_attached++;
       }
@@ -680,12 +652,14 @@ shm_fork(struct proc *parent, struct proc *child)
       return 0;
 
     rollback:
+      //Find all existing mapped segments in the child and unmap them.
       for (i = 0; i < SHM_MAX_ATTACHED; i++) {
         if (!child->shm_attachments[i].used)
           continue;
 
         seg = 0;
 
+        //Search for the segment in the global shared memory table
         for (j = 0; j < SHM_TABLE_MAX; j++) {
           if (shm_table.seg[j].used &&
               shm_table.seg[j].shmid ==
@@ -695,6 +669,7 @@ shm_fork(struct proc *parent, struct proc *child)
           }
         }
 
+        //Calculate the number of pages required to unmap and unmap them from the child.
         if (seg != 0) {
           npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
 
@@ -706,6 +681,7 @@ shm_fork(struct proc *parent, struct proc *child)
             seg->tot_attached--;
         }
 
+        //Re-init the child attachment table to 0.
         memset(&child->shm_attachments[i], 0,
                sizeof(child->shm_attachments[i]));
       }
@@ -714,6 +690,7 @@ shm_fork(struct proc *parent, struct proc *child)
     return -1;
 }
 
+//Detach all the shared memory mappings in exit before it deallocates all the procs physical pages.
 void
 shm_detach_all(struct proc *p)
 {
@@ -723,6 +700,7 @@ shm_detach_all(struct proc *p)
     shm_detach_from_pgdir(p, p->pgdir);
 }
 
+//Detach all shared memory segments from pgdir of old proc when transitioning to new one to avoid shared memory copy.
 void
 shm_exec_detach(struct proc *p, pde_t *oldpgdir)
 {

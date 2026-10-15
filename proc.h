@@ -51,7 +51,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
-  struct shm_attachment shm_attachments[SHM_MAX_ATTACHED];
+  struct shm_attachment shm_attachments[SHM_MAX_ATTACHED]; // Process shared memory attachment table
 };
 
 // Process memory is laid out contiguously, low addresses first:
