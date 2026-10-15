@@ -25,8 +25,8 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int shmget(int key, int size, int shmflg);
-void* shmat(int shmid, uint shmaddr, int shmflg);
-int shmdt(const void *shmaddr);
+int shmat(int shmid, uint shmaddr, int shmflg);
+int shmdt(uint shmaddr);
 int shmctl(int shmid, int cmd, struct shmid_ds *buf);
 
 // ulib.c

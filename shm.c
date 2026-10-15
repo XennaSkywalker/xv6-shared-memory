@@ -571,6 +571,60 @@ shm_at(int shmid, uint shmaddr, int shmflg)
     return (int)addr;
 }
 
+int shm_dt(uint shmaddr)
+{
+    struct proc *p;
+    struct shmseg *seg;
+    struct shm_attachment *attachment;
+    uint npages;
+    uint i;
+
+    p = myproc();
+
+    if (p == 0)
+        return -1;
+
+    acquire(&shm_table.lock);
+
+    attachment = 0;
+
+    for (i = 0; i < SHM_MAX_ATTACHED; i++) {
+        if (p->shm_attachments[i].used &&
+            p->shm_attachments[i].addr == shmaddr) {
+            attachment = &p->shm_attachments[i];
+            break;
+        }
+    }
+
+    if (attachment == 0) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    seg = shm_lookup(attachment->shmid, 1);
+
+    if (seg == 0) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
+
+    shm_unmap_pages(p->pgdir, attachment->addr, npages);
+
+    memset(attachment, 0, sizeof(*attachment));
+
+    if (seg->tot_attached > 0)
+        seg->tot_attached--;
+
+    if (seg->marked_delete && seg->tot_attached == 0)
+        shm_free(seg);
+
+    release(&shm_table.lock);
+    return 0;
+}
+
+
 int
 shm_fork(struct proc *parent, struct proc *child)
 {

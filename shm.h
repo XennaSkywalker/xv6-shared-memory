@@ -52,5 +52,6 @@ void shm_exec_detach(struct proc *p, pde_t *oldpgdir);
 
 int shm_get(int key, uint size, int shmflg);
 int shm_at(int shmid, uint addr, int shmflags);
+int shm_dt(uint shmaddr);
 
 #endif
