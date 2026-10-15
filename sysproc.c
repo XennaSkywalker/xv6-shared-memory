@@ -133,12 +133,8 @@ sys_shmat(void)
 int
 sys_shmdt(void)
 {
-  uint shmaddr;
-
-  if (argint(0, (int*)&shmaddr) < 0)
-    return -1;
-
-  return shm_dt(shmaddr);
+  cprintf("sys_shmdt called\n");
+  return 0;
 }
 
 int
