@@ -11,12 +11,14 @@ main(void)
     int shmid2;
     int shmid3;
     int shmid4;
+    int shmid5;
     char *shared;
     char *shared2;
     char *shared3;
     char *shared4;
     int pid;
     int status;
+    struct shmid_ds info;
 
     printf(1, "\n===== SHMAT TEST =====\n");
 
@@ -109,6 +111,33 @@ main(void)
         exit();
     }
     printf(1, "PASS: Read/write shared memory\n");
+
+    //shm_ctl test
+    printf(1, "===== SHMCTL TEST =====\n");
+    shmid5 = shmget(400, 4096, IPC_CREAT | 0666);
+
+    if (shmid5 < 0) {
+        printf(1, "FAIL: shmget\n");
+        exit();
+    }
+
+    printf(1, "Created segment: %d\n", shmid5);
+
+    if (shmctl(shmid5, IPC_STAT, &info) < 0) {
+        printf(1, "FAIL: IPC_STAT\n");
+        exit();
+    }
+
+    printf(1, "Size: %d\n", info.shm_size);
+    printf(1, "Permissions: %d\n", info.permissions);
+    printf(1, "Attachments: %d\n", info.nattch);
+
+    if (shmctl(shmid, IPC_RMID, 0) < 0) {
+        printf(1, "FAIL: IPC_RMID\n");
+        exit();
+    }
+    printf(1, "PASS: IPC_RMID\n");
+    printf(1, "Pass shm_ctl\n");
 
     //Test RD_ONLY memory
     /*printf(1, "===== SHM_RD_ONLY TEST =====\n");

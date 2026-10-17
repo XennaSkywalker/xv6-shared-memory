@@ -27,7 +27,7 @@ int uptime(void);
 int shmget(int key, int size, int shmflg);
 int shmat(int shmid, uint shmaddr, int shmflg);
 int shmdt(uint shmaddr);
-int shmctl(int shmid, int cmd, struct shmid_ds *buf);
+int shmctl(int shmid, int cmd, void *buf);
 
 // ulib.c
 int stat(const char*, struct stat*);

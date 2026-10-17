@@ -7,10 +7,15 @@
 #include "spinlock.h"
 #include "shmuser.h"
 
-#define SHM_TABLE_MAX 64
+#define SHMMNI 64
+#define SHM_TABLE_MAX SHMMNI
 #define SHM_MAX_PAGES 256
 #define SHM_MAX_ATTACHED 16
 #define SHM_BASE 0x70000000
+#define SHMLBA 4096
+#define SHMMIN 1
+#define SHMMAX (SHM_MAX_PAGES * 4096)
+
 
 struct proc;
 
@@ -53,5 +58,6 @@ void shm_exec_detach(struct proc *p, pde_t *oldpgdir);
 int shm_get(int key, uint size, int shmflg);
 int shm_at(int shmid, uint addr, int shmflags);
 int shm_dt(uint shmaddr);
+int shm_ctl(int shmid, int cmd, void* buf);
 
 #endif

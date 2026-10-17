@@ -6,6 +6,8 @@
 #include "proc.h"
 #include "shm.h"
 
+#include "../xv6-public/x86.h"
+
 struct shm_table shm_table;
 static int next_shmid = 1;
 
@@ -239,11 +241,7 @@ shm_get(int key, uint size, int shmflg)
     int shmid;
     int permissions;
 
-    if (size == 0)
-        return -1;
-
-    //size exceeds possible size of a segment
-    if (size / PGSIZE + (size % PGSIZE != 0) > SHM_MAX_PAGES)
+    if (size < SHMMIN || size > SHMMAX)
         return -1;
 
     permissions = shmflg & 0777;
@@ -305,10 +303,7 @@ shm_create(int key, uint size, int permissions)
     int i,j;
     int shmid;
 
-    if (size == 0)
-        return -1;
-
-    if ((size + PGSIZE - 1)/PGSIZE > SHM_MAX_PAGES)
+    if (size < SHMMIN || size > SHMMAX)
         return -1;
 
     for (i = 0; i < SHM_TABLE_MAX; i++) {
@@ -431,18 +426,27 @@ shm_at(int shmid, uint shmaddr, int shmflg)
     int perm;
     int found;
     int requested;
+    int remap;
 
     p = myproc();
 
     if (p == 0)
         return -1;
 
+    //Unsupported currently
+    if (shmflg & SHM_EXEC | shmflg & SHM_REMAP)
+        return -1;
+
     // Unsupported Flags cause exit.
-    if (shmflg & ~(SHM_RDONLY | SHM_RND))
+    if (shmflg & ~(SHM_RDONLY | SHM_RND | SHM_REMAP | SHM_EXEC))
         return -1;
 
     //A zero address requests automatic placement.
     requested = (shmaddr != 0);
+    remap = (shmflg & SHM_REMAP) != 0;
+
+    if (remap && !requested)
+        return -1;
 
     //If RND enabled round off to nearest lower page alignment.
     //If no RND and addr not page aligned exit.
@@ -533,6 +537,25 @@ shm_at(int shmid, uint shmaddr, int shmflg)
         return -1;
     }
 
+    //SHM_REMAP replaces the existing mappings in the requested range.
+    //It's only safe within the dedicated shared memory region.
+    /*if (remap) {
+        for (i = 0; i < npages; i++) {
+            pte_t *pte;
+            pte = walkpgdir(
+                p->pgdir,
+                (void *)(addr + i * PGSIZE),
+                0
+            );
+
+            if (pte != 0 && (*pte & PTE_P))
+                *pte = 0;
+        }
+
+        //Invalidate stale translations on CPU
+        lcr3(V2P(p->pgdir));
+    }*/
+
     //Permissions for shared memory are set.
     //Incase of SHM_RDONLY , read only flag is set.
     perm = PTE_U;
@@ -622,6 +645,180 @@ int shm_dt(uint shmaddr)
 
     release(&shm_table.lock);
     return 0;
+}
+
+int
+shm_ctl(int shmid, int cmd, void *buf)
+{
+    struct shmseg *seg;
+    struct shmid_ds *ds;
+    struct shm_info *info;
+    struct shm_limits *limits;
+    int i;
+    int index;
+    int used_ids;
+    int total_pages;
+    int total_attached;
+
+    switch (cmd) {
+
+    //IPC_STAT returns the metadata of the given shmid to the user by copying it into shmid_ds data structure.
+    case IPC_STAT:
+        if (buf == 0)
+            return -1;
+
+        acquire(&shm_table.lock);
+
+        seg = shm_lookup(shmid, 1);
+
+        if (seg == 0) {
+            release(&shm_table.lock);
+            return -1;
+        }
+
+        ds = (struct shmid_ds *)buf;
+
+        ds->shmid = seg->shmid;
+        ds->key = seg->key;
+        ds->shm_size = seg->shm_size;
+        ds->permissions = seg->permissions;
+        ds->nattch = seg->tot_attached;
+        ds->marked_delete = seg->marked_delete;
+
+        release(&shm_table.lock);
+        return 0;
+
+    //IPC_SET validates the permisssion metadata for a given shmid and modifies them according to the parameters passed
+    case IPC_SET:
+        if (buf == 0)
+            return -1;
+
+        ds = (struct shmid_ds *)buf;
+
+        if (ds->permissions & ~0777)
+            return -1;
+
+        acquire(&shm_table.lock);
+
+        seg = shm_lookup(shmid, 0);
+
+        if (seg == 0) {
+            release(&shm_table.lock);
+            return -1;
+        }
+
+        seg->permissions = ds->permissions & 0777;
+
+        release(&shm_table.lock);
+        return 0;
+
+    //IPC_RMID marks the segment of given shmid for deletion by setting the marked_delete.
+    case IPC_RMID:
+        acquire(&shm_table.lock);
+
+        seg = shm_lookup(shmid, 0);
+
+        if (seg == 0) {
+            release(&shm_table.lock);
+            return -1;
+        }
+
+        seg->marked_delete = 1;
+
+        if (seg->tot_attached == 0)
+            shm_free(seg);
+
+        release(&shm_table.lock);
+        return 0;
+
+    //IPC_INFO returns a structure to the user stating the current limits of the shared segment implementation.
+    case IPC_INFO:
+        if (buf == 0)
+            return -1;
+
+        limits = (struct shm_limits *)buf;
+
+        limits->shmmax = SHMMAX;
+        limits->shmmin = SHMMIN;
+        limits->shmmni = SHM_TABLE_MAX;
+        limits->max_pages_per_segment = SHM_MAX_PAGES;
+
+        return 0;
+
+    //SHM_INFO returns a structure to the user stating the resources of the shared segments under use currently.
+    case SHM_INFO:
+        if (buf == 0)
+            return -1;
+
+        used_ids = 0;
+        total_pages = 0;
+        total_attached = 0;
+
+        acquire(&shm_table.lock);
+
+        for (i = 0; i < SHM_TABLE_MAX; i++) {
+            seg = &shm_table.seg[i];
+
+            if (!seg->used)
+                continue;
+
+            used_ids++;
+
+            total_pages +=
+                (seg->shm_size + PGSIZE - 1) / PGSIZE;
+
+            total_attached += seg->tot_attached;
+        }
+
+        release(&shm_table.lock);
+
+        info = (struct shm_info *)buf;
+
+        info->used_ids = used_ids;
+        info->total_pages = total_pages;
+        info->total_attached = total_attached;
+
+        return 0;
+
+    //Both find shared segment from the global shared memory table using the table index instead of shmid.
+    //It then copies shared segment metadata into the structure and returns the shmid to the user.
+    case SHM_STAT:
+    case SHM_STAT_ANY:
+        if (buf == 0)
+            return -1;
+
+        if (shmid < 0 || shmid >= SHM_TABLE_MAX)
+            return -1;
+
+        index = shmid;
+
+        acquire(&shm_table.lock);
+
+        seg = &shm_table.seg[index];
+
+        if (!seg->used) {
+            release(&shm_table.lock);
+            return -1;
+        }
+
+        ds = (struct shmid_ds *)buf;
+
+        ds->shmid = seg->shmid;
+        ds->key = seg->key;
+        ds->shm_size = seg->shm_size;
+        ds->permissions = seg->permissions;
+        ds->nattch = seg->tot_attached;
+        ds->marked_delete = seg->marked_delete;
+
+        index = seg->shmid;
+
+        release(&shm_table.lock);
+        return index;
+
+
+    default:
+        return -1;
+    }
 }
 
 

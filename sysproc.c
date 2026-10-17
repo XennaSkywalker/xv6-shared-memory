@@ -145,6 +145,42 @@ sys_shmdt(void)
 int
 sys_shmctl(void)
 {
-  cprintf("sys_shmctl called\n");
-  return 0;
+  int shmid;
+  int cmd;
+  char *buf;
+  int size;
+
+  if (argint(0, &shmid) < 0)
+    return -1;
+
+  if (argint(1, &cmd) < 0)
+    return -1;
+
+  switch (cmd) {
+    case IPC_STAT:
+    case IPC_SET:
+    case SHM_STAT:
+    case SHM_STAT_ANY:
+      size = sizeof(struct shmid_ds);
+      break;
+
+    case IPC_INFO:
+      size = sizeof(struct shm_limits);
+      break;
+
+    case SHM_INFO:
+      size = sizeof(struct shm_info);
+      break;
+
+    case IPC_RMID:
+      return shm_ctl(shmid, cmd, 0);
+
+    default:
+      return -1;
+  }
+
+  if (argptr(2, &buf, size) < 0)
+    return -1;
+
+  return shm_ctl(shmid, cmd, buf);
 }

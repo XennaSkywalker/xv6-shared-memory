@@ -8,16 +8,37 @@
 #define IPC_EXCL    02000
 #define SHM_RDONLY  0x01
 #define SHM_RND     0x02
-#define SHMLBA      PGSIZE
+#define SHM_REMAP   040000
+#define SHM_EXEC    0100000
 
-#define IPC_STAT 1
-#define IPC_RMID 2
+#define IPC_STAT    01000
+#define IPC_SET     02000
+#define IPC_RMID    03000
+#define IPC_INFO    04000
+#define SHM_INFO    05000
+#define SHM_STAT    06000
+#define SHM_STAT_ANY  07000
 
 struct shmid_ds {
     int shmid;
     int key;
-    unsigned int shm_size;
-    int tot_attached;
+    uint shm_size;
+    int permissions;
+    int nattch;
+    int marked_delete;
+};
+
+struct shm_info {
+    int used_ids;
+    int total_pages;
+    int total_attached;
+};
+
+struct shm_limits {
+    uint shmmax;
+    uint shmmin;
+    int shmmni;
+    int max_pages_per_segment;
 };
 
 #endif
