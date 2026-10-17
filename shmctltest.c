@@ -96,11 +96,9 @@ main(void)
     ds.permissions = 0600;
 
     ret = shmctl(shmid, IPC_SET, &ds);
-
     check("IPC_SET updates permissions", ret == 0);
 
     ret = shmctl(shmid, IPC_STAT, &ds);
-
     check("IPC_STAT succeeds after IPC_SET", ret == 0);
 
     if (ret == 0) {
@@ -117,12 +115,10 @@ main(void)
     ds.permissions = 01000;
 
     ret = shmctl(shmid, IPC_SET, &ds);
-
     check("IPC_SET rejects invalid permission bits",
           ret < 0);
 
     ret = shmctl(shmid, IPC_STAT, &ds);
-
     check("IPC_STAT succeeds after rejected IPC_SET",
           ret == 0);
 
@@ -135,7 +131,6 @@ main(void)
     printf(1, "\n===== TEST 5: IPC_INFO =====\n");
 
     ret = shmctl(0, IPC_INFO, &limits);
-
     check("IPC_INFO succeeds", ret == 0);
 
     if (ret == 0) {
@@ -159,7 +154,6 @@ main(void)
     printf(1, "\n===== TEST 6: SHM_INFO =====\n");
 
     ret = shmctl(0, SHM_INFO, &info_before);
-
     check("SHM_INFO succeeds", ret == 0);
 
     if (ret == 0) {
@@ -212,7 +206,6 @@ main(void)
 
     //TEST 8: SHM_STAT_ANY
     printf(1, "\n===== TEST 8: SHM_STAT_ANY =====\n");
-
     found = 0;
 
     for (i = 0; i < SHM_TABLE_MAX; i++) {
@@ -252,15 +245,12 @@ main(void)
         }
 
         addr[0] = 'A';
-
         check("Attached memory is writable", addr[0] == 'A');
 
         ret = shmdt((uint) addr);
-
         check("shmdt detaches successfully", ret == 0);
 
         ret = shmctl(shmid, IPC_STAT, &ds);
-
         check("IPC_STAT succeeds after detach", ret == 0);
 
         if (ret == 0) {
@@ -286,11 +276,9 @@ main(void)
         addr[0] = 'X';
 
         ret = shmctl(shmid, IPC_RMID, 0);
-
         check("IPC_RMID succeeds while attached", ret == 0);
 
         ret = shmctl(shmid, IPC_STAT, &ds);
-
         check("IPC_STAT finds a marked segment", ret == 0);
 
         if (ret == 0) {
@@ -305,18 +293,15 @@ main(void)
               addr[0] == 'X');
 
         addr2 = (char *)shmat(shmid, 0, 0);
-
         check("New attachment is rejected after IPC_RMID",
               (uint)addr2 == (uint)-1);
 
         ret = shmdt((uint) addr);
-
         check("Final shmdt succeeds after IPC_RMID",
               ret == 0);
 
         //After the last detach, the segment should be freed.
         ret = shmctl(shmid, IPC_STAT, &ds);
-
         check("Segment is freed after final detach",
               ret < 0);
     } else {
@@ -327,22 +312,17 @@ main(void)
 
     //TEST 11: IPC_RMID without attachments.
     printf(1, "\n===== TEST 11: IPC_RMID Without Attachments =====\n");
-
     shmid2 = shmget(TEST_KEY + 1, TEST_SIZE, IPC_CREAT | 0666);
-
     check("Create second segment", shmid2 >= 0);
 
     if (shmid2 >= 0) {
         ret = shmctl(shmid2, IPC_STAT, &ds);
-
         check("Second segment initially exists", ret == 0);
 
         ret = shmctl(shmid2, IPC_RMID, 0);
-
         check("IPC_RMID succeeds without attachments", ret == 0);
 
         ret = shmctl(shmid2, IPC_STAT, &ds);
-
         check("Segment is immediately freed",
               ret < 0);
     }
@@ -351,27 +331,22 @@ main(void)
     printf(1, "\n===== TEST 12: Invalid Inputs =====\n");
 
     ret = shmctl(-1, IPC_STAT, &ds);
-
     check("IPC_STAT rejects invalid shmid", ret < 0);
 
     ret = shmctl(99999, IPC_STAT, &ds);
-
     check("IPC_STAT rejects nonexistent shmid", ret < 0);
 
     ret = shmctl(shmid, 999, &ds);
-
     check("shmctl rejects unsupported command", ret < 0);
 
     //TEST 13: Invalid table indices for SHM_STAT.
     printf(1, "\n===== TEST 13: Invalid Table Indices =====\n");
 
     ret = shmctl(-1, SHM_STAT, &stat_ds);
-
     check("SHM_STAT rejects negative table index",
           ret < 0);
 
     ret = shmctl(SHM_TABLE_MAX, SHM_STAT, &stat_ds);
-
     check("SHM_STAT rejects out-of-range table index",
           ret < 0);
 
