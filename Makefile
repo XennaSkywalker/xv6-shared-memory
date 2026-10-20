@@ -18,6 +18,7 @@ OBJS = \
 	sleeplock.o\
 	spinlock.o\
 	shm.o\
+	shm_posix.o\
 	string.o\
 	swtch.o\
 	syscall.o\
@@ -184,6 +185,7 @@ UPROGS=\
 	_zombie\
 	_shmtest\
 	_shmctltest\
+	_shm_posix_test\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)

@@ -107,6 +107,7 @@ extern int sys_shmget(void);
 extern int sys_shmat(void);
 extern int sys_shmdt(void);
 extern int sys_shmctl(void);
+extern int sys_shmopen(void);
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -134,6 +135,7 @@ static int (*syscalls[])(void) = {
 [SYS_shmat]   sys_shmat,
 [SYS_shmdt]   sys_shmdt,
 [SYS_shmctl]  sys_shmctl,
+[SYS_shmopen] sys_shmopen,
 };
 
 void

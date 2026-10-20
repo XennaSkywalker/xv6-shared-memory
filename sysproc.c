@@ -184,3 +184,22 @@ sys_shmctl(void)
 
   return shm_ctl(shmid, cmd, buf);
 }
+
+int
+sys_shmopen(void)
+{
+  char *name;
+  int oflag;
+  int mode;
+
+  if (argstr(0, &name) < 0)
+    return -1;
+
+  if (argint(1, &oflag) < 0)
+    return -1;
+
+  if (argint(2, &mode) < 0)
+    return -1;
+
+  return shm_open(name, oflag, mode);
+}

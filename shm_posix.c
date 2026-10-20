@@ -1,15 +1,17 @@
 #include "types.h"
-#include "defs.h"
 #include "param.h"
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+#include "x86.h"
 #include "spinlock.h"
+#include "sleeplock.h"
+#include "fs.h"
 #include "file.h"
 #include "fcntl.h"
+#include "defs.h"
 #include "shm.h"
 #include "shmuser.h"
-#include "x86.h"
 
 extern struct shm_table shm_table;
 

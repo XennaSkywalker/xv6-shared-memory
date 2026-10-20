@@ -28,6 +28,7 @@ int shmget(int key, int size, int shmflg);
 int shmat(int shmid, uint shmaddr, int shmflg);
 int shmdt(uint shmaddr);
 int shmctl(int shmid, int cmd, void *buf);
+int shmopen(const char* name, int oflag, int mode);
 
 // ulib.c
 int stat(const char*, struct stat*);
