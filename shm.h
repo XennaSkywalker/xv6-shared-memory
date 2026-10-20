@@ -15,9 +15,11 @@
 #define SHMLBA 4096
 #define SHMMIN 1
 #define SHMMAX (SHM_MAX_PAGES * 4096)
+#define SHM_NAME_MAX 32
 
 
 struct proc;
+extern struct shm_table shm_table;
 
 //we dont enforce permissions rn, need to enforce them
 struct shmseg {
@@ -29,6 +31,9 @@ struct shmseg {
     int tot_attached;
     int marked_delete;
     uint pages[SHM_MAX_PAGES];
+    int is_posix;
+    char name[SHM_NAME_MAX];
+    int open_refs;
 };
 
 struct shm_table {
@@ -40,6 +45,10 @@ struct shm_attachment {
     int used;
     int shmid;
     uint addr;
+    uint length;
+    uint offset;
+    int prot;
+    int flags;
 };
 
 void shm_init(void);
@@ -59,5 +68,10 @@ int shm_get(int key, uint size, int shmflg);
 int shm_at(int shmid, uint addr, int shmflags);
 int shm_dt(uint shmaddr);
 int shm_ctl(int shmid, int cmd, void* buf);
+
+//POSIX syscalls
+int shm_open(const char* name, int oflag, int mode);
+int shm_alloc_id_locked(void);
+int shm_alloc_id(void);
 
 #endif

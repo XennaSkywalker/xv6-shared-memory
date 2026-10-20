@@ -11,6 +11,41 @@
 struct shm_table shm_table;
 static int next_shmid = 1;
 
+//Neccessary for creating a api mechanism for accessing next_shmid whether its via system V or posix syscalls
+//These fns serves as this mechanism which is also defined in shm.h
+int
+shm_alloc_id_locked(void)
+{
+    int id;
+    int i;
+    int found;
+
+    for (;;) {
+        id = next_shmid++;
+        if (next_shmid <= 0) next_shmid = 1;
+        found = 0;
+
+        for (i = 0; i < SHM_TABLE_MAX; i++) {
+            if (shm_table.seg[i].used &&
+                shm_table.seg[i].shmid == id) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found) return id;
+    }
+}
+
+int
+shm_alloc_id(void)
+{
+    int id;
+    acquire(&shm_table.lock);
+    id = shm_alloc_id_locked();
+    release(&shm_table.lock);
+    return id;
+}
+
 //shmget() acquires the lock.
 //shm_find_by_key() and shm_find_by_shmid() assume the lock is already held.
 //shm_create() assumes the lock is already held.
@@ -194,6 +229,10 @@ shm_init(void)
         shm_table.seg[i].permissions = 0;
         shm_table.seg[i].tot_attached = 0;
         shm_table.seg[i].marked_delete = 0;
+        shm_table.seg[i].is_posix = 0;
+        memset(shm_table.seg[i].name, 0,
+               sizeof(shm_table.seg[i].name));
+        shm_table.seg[i].open_refs = 0;
         
         for (j = 0; j < SHM_MAX_PAGES; j++)
             shm_table.seg[i].pages[j] = 0;
@@ -314,8 +353,7 @@ shm_create(int key, uint size, int permissions)
         return -1;
     }
 
-    shmid = next_shmid;
-    next_shmid++;
+    shmid = shm_alloc_id_locked();
   
     shm_table.seg[i].used = 1;
     shm_table.seg[i].shmid = shmid;
@@ -324,6 +362,10 @@ shm_create(int key, uint size, int permissions)
     shm_table.seg[i].permissions = permissions;
     shm_table.seg[i].tot_attached = 0;
     shm_table.seg[i].marked_delete = 0;
+    shm_table.seg[i].is_posix = 0;
+    memset(shm_table.seg[i].name, 0,
+           sizeof(shm_table.seg[i].name));
+    shm_table.seg[i].open_refs = 0;
 
     for (j = 0; j < SHM_MAX_PAGES; j++)
         shm_table.seg[i].pages[j] = 0;
@@ -355,6 +397,9 @@ shm_free(struct shmseg *seg)
     seg->permissions = 0;
     seg->tot_attached = 0;
     seg->marked_delete = 0;
+    seg->is_posix = 0;
+    memset(seg->name, 0, sizeof(seg->name));
+    seg->open_refs = 0;
 }
 
 //free the physical pages
@@ -585,6 +630,11 @@ shm_at(int shmid, uint shmaddr, int shmflg)
     p->shm_attachments[slot].used = 1;
     p->shm_attachments[slot].shmid = shmid;
     p->shm_attachments[slot].addr = addr;
+    p->shm_attachments[slot].length = seg->shm_size;
+    p->shm_attachments[slot].offset = 0;
+    p->shm_attachments[slot].prot =
+        (shmflg & SHM_RDONLY) ? 1 : 3;
+    p->shm_attachments[slot].flags = shmflg;
 
     seg->tot_attached++;
 
@@ -895,6 +945,11 @@ shm_fork(struct proc *parent, struct proc *child)
         child->shm_attachments[j].used = 1;
         child->shm_attachments[j].shmid = parent->shm_attachments[i].shmid;
         child->shm_attachments[j].addr = parent->shm_attachments[i].addr;
+        child->shm_attachments[j].used = 1;
+        child->shm_attachments[j].length = parent->shm_attachments[i].length;
+        child->shm_attachments[j].offset = parent->shm_attachments[i].offset;
+        child->shm_attachments[j].prot = parent->shm_attachments[i].prot;
+        child->shm_attachments[j].flags = parent->shm_attachments[i].flags;
 
         seg->tot_attached++;
       }

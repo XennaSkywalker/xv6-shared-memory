@@ -9,6 +9,7 @@
 #include "spinlock.h"
 #include "sleeplock.h"
 #include "file.h"
+#include "shm.h"
 
 struct devsw devsw[NDEV];
 struct {
@@ -76,6 +77,22 @@ fileclose(struct file *f)
     begin_op();
     iput(ff.ip);
     end_op();
+  }
+  else if (ff.type == FD_SHM) {
+    struct shmseg *seg;
+
+    acquire(&shm_table.lock);
+    seg = ff.shm;
+    if (seg != 0 && seg->used) {
+      if (seg->open_refs > 0)
+        seg->open_refs--;
+      if (seg->marked_delete &&
+          seg->open_refs == 0 &&
+          seg->tot_attached == 0) {
+        shm_free(seg);
+      }
+    }
+    release(&shm_table.lock);
   }
 }
 
