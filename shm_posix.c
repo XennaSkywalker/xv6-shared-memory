@@ -30,7 +30,8 @@ shm_posix_valid_name(const char *name)
     return 0;
 }
 
-//Locks the global shm segment table to access the shm segment via its POSIX name
+//Access the shm segment via its POSIX name
+//Caller must hold shm_table.lock
 static struct shmseg*
 shm_posix_find_locked(const char *name)
 {
@@ -82,7 +83,8 @@ shm_posix_create_locked(const char *name, int mode)
     return seg;
 }
 
-//Dont know for now
+//Wrapper for filealloc()
+//Finds a free file (ref = 0) in the global file table and returns a pointer to it
 static struct file *
 shm_file_alloc(void)
 {
@@ -112,7 +114,7 @@ shm_fd_alloc(struct proc *p, struct file *f)
 
 //Wrapper syscall that calls fileclose() which has been modified to call shm_free() when fd is of enum type FD_SHM
 static void
-shm_file_free(struct file *f)
+shm_file_close(struct file *f)
 {
     if (f == 0) return;
     fileclose(f);
@@ -180,7 +182,7 @@ shm_open(const char *name, int oflag, int mode)
         //O_CREAT and O_EXCL in combination explicitly state to create a new shared object if it doesn't exist which is not necessary in this case.
         if ((oflag & O_CREAT) && (oflag & O_EXCL)) {
             release(&shm_table.lock);
-            shm_file_free(f);
+            shm_file_close(f);
             return -1;
         }
     }
@@ -188,7 +190,7 @@ shm_open(const char *name, int oflag, int mode)
     else {
         if (!(oflag & O_CREAT)) {
             release(&shm_table.lock);
-            shm_file_free(f);
+            shm_file_close(f);
             return -1;
         }
 
@@ -196,7 +198,7 @@ shm_open(const char *name, int oflag, int mode)
 
         if (seg == 0) {
             release(&shm_table.lock);
-            shm_file_free(f);
+            shm_file_close(f);
             return -1;
         }
     }
@@ -217,7 +219,7 @@ shm_open(const char *name, int oflag, int mode)
     fd = shm_fd_alloc(p, f);
 
     if (fd < 0) {
-        shm_file_free(f);
+        shm_file_close(f);
         return -1;
     }
 
