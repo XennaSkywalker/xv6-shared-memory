@@ -382,14 +382,12 @@ shm_create(int key, uint size, int permissions)
 void
 shm_free(struct shmseg *seg)
 {
-    if(seg == 0)
-        return;
-        
-    if (seg->tot_attached > 0)
-        return;
-    
-    shm_free_pages(seg); //this actually frees the pages
-    
+    if (seg == 0) return;
+    if (seg->tot_attached > 0) return;
+    if (seg->is_posix && seg->open_refs > 0) return;
+
+    shm_free_pages(seg);
+
     seg->used = 0;
     seg->shmid = -1;
     seg->key = 0;
@@ -401,6 +399,7 @@ shm_free(struct shmseg *seg)
     memset(seg->name, 0, sizeof(seg->name));
     seg->open_refs = 0;
 }
+
 
 //free the physical pages
 int

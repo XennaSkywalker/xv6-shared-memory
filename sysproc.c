@@ -203,3 +203,14 @@ sys_shmopen(void)
 
   return shm_open(name, oflag, mode);
 }
+
+int
+sys_shmunlink(void)
+{
+  char *name;
+
+  if (argstr(0, &name) < 0)
+    return -1;
+
+  return shm_unlink(name);
+}

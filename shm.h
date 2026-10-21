@@ -73,5 +73,6 @@ int shm_ctl(int shmid, int cmd, void* buf);
 int shm_open(const char* name, int oflag, int mode);
 int shm_alloc_id_locked(void);
 int shm_alloc_id(void);
+int shm_unlink(const char* name);
 
 #endif

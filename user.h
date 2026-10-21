@@ -29,6 +29,7 @@ int shmat(int shmid, uint shmaddr, int shmflg);
 int shmdt(uint shmaddr);
 int shmctl(int shmid, int cmd, void *buf);
 int shmopen(const char* name, int oflag, int mode);
+int shmunlink(const char* name);
 
 // ulib.c
 int stat(const char*, struct stat*);
