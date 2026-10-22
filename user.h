@@ -30,6 +30,7 @@ int shmdt(uint shmaddr);
 int shmctl(int shmid, int cmd, void *buf);
 int shmopen(const char* name, int oflag, int mode);
 int shmunlink(const char* name);
+int shmmmap(char *addr, int length, int prot, int flags, int fd, int offset);
 
 // ulib.c
 int stat(const char*, struct stat*);

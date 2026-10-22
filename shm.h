@@ -63,6 +63,8 @@ int shm_alloc_pages(struct shmseg *seg);
 int shm_fork(struct proc *parent, struct proc *child);
 void shm_detach_all(struct proc *p);
 void shm_exec_detach(struct proc *p, pde_t *oldpgdir);
+int shm_addr_free(struct proc *p, uint addr, uint npages);
+int shm_unmap_pages(pde_t *pgdir, uint addr, uint npages);
 
 int shm_get(int key, uint size, int shmflg);
 int shm_at(int shmid, uint addr, int shmflags);
@@ -74,5 +76,6 @@ int shm_open(const char* name, int oflag, int mode);
 int shm_alloc_id_locked(void);
 int shm_alloc_id(void);
 int shm_unlink(const char* name);
+int shm_mmap(int fd, uint addr, int length, int prot, int flags, uint offset);
 
 #endif

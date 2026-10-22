@@ -214,3 +214,25 @@ sys_shmunlink(void)
 
   return shm_unlink(name);
 }
+
+int
+sys_shmmmap(void)
+{
+  int fd;
+  int length;
+  int prot;
+  int flags;
+  int offset;
+  int addr;
+
+  if (argint(0, &addr) < 0 ||
+      argint(1, &length) < 0 ||
+      argint(2, &prot) < 0 ||
+      argint(3, &flags) < 0 ||
+      argint(4, &fd) < 0 ||
+      argint(5, &offset) < 0)
+    return -1;
+
+  if (offset < 0) return -1;
+  return shm_mmap(fd, (uint)addr, length, prot, flags, (uint)offset);
+}

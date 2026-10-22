@@ -28,6 +28,16 @@
 #define SHM_STAT        0x0006
 #define SHM_STAT_ANY    0x0007
 
+/* POSIX mmap flags */
+#define PROT_NONE   0x0
+#define PROT_READ   0x1
+#define PROT_WRITE  0x2
+#define PROT_EXEC   0x4
+
+#define MAP_SHARED  0x01
+#define MAP_PRIVATE 0x02
+#define MAP_FIXED   0x10
+
 struct shmid_ds {
     int shmid;
     int key;

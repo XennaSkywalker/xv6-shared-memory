@@ -260,4 +260,137 @@ shm_unlink(const char *name)
     return 0;
 }
 
+int shm_mmap(int fd, uint requested_addr, int length, int prot, int flags, uint offset) {
+    struct proc *p;
+    struct file *f;
+    struct shmseg *seg;
+    struct shm_attachment *attachment;
+    uint addr, npages, first_page, map_length;
+    int i, slot, found, perm;
+
+    p = myproc();
+    if (p == 0) return -1;
+
+    // Validate arguments.
+    if (fd < 0 || fd >= NOFILE) return -1;
+    if (length <= 0) return -1;
+    if (prot & ~(PROT_READ | PROT_WRITE)) return -1;
+    if (flags != MAP_SHARED) return -1;
+    if (offset % PGSIZE != 0) return -1;
+
+    // Locate the file descriptor.
+    f = p->ofile[fd];
+    if (f == 0 || f->type != FD_SHM) return -1;
+    if (f->shm == 0) return -1;
+
+    // The mapping must respect the access mode used by shm_open().
+    if ((prot & PROT_WRITE) && !f->writable) return -1;
+    if ((prot & PROT_READ) && !f->readable) return -1;
+
+    // Calculate the mapping size.
+    map_length = ((uint)length + PGSIZE - 1) & ~(PGSIZE - 1);
+    npages = map_length / PGSIZE;
+    first_page = offset / PGSIZE;
+    if (npages == 0 || npages > SHM_MAX_PAGES) return -1;
+    if (first_page >= SHM_MAX_PAGES) return -1;
+    if (npages > SHM_MAX_PAGES - first_page) return -1;
+
+    // The requested range must lie within shared memory range
+    seg = f->shm;
+    if (offset > seg->shm_size || (uint)length > seg->shm_size - offset) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    // Verify that every requested backing page exists.
+    if (first_page + npages > (seg->shm_size + PGSIZE - 1) / PGSIZE) {
+        release(&shm_table.lock);
+        return -1;
+    }
+    for (i = 0; i < npages; i++) {
+        if (seg->pages[first_page + i] == 0) {
+            release(&shm_table.lock);
+            return -1;
+        }
+    }
+
+    // Find an available attachment slot.
+    slot = 0;
+    for (i = 0; i < SHM_MAX_ATTACHED; i++) {
+        if (!p->shm_attachments[i].used) {
+            slot = i;
+            break;
+        }
+    }
+    if (i == SHM_MAX_ATTACHED) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    // If an address was supplied...use it otherwise iterate starting from SHM_BASE
+    found = 0;
+    if (requested_addr != 0) {
+        addr = requested_addr;
+        if (addr % PGSIZE != 0) {
+            release(&shm_table.lock);
+            return -1;
+        }
+        if (shm_addr_free(p, addr, npages)) found = 1;
+    }
+    else {
+        addr = SHM_BASE;
+        while (addr < KERNBASE && npages <= (KERNBASE - addr) / PGSIZE) {
+            if (shm_addr_free(p, addr, npages)) {
+                found = 1;
+                break;
+            }
+            if (addr > KERNBASE - PGSIZE) break;
+            addr += PGSIZE;
+       }
+    }
+    if (!found) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    // Set permissions for the shared segment after validation.
+    perm = PTE_U;
+    if (prot & PROT_WRITE) perm |= PTE_W;
+
+    // Map the existing shared physical pages.
+    // Do not allocate new pages.
+    for (i = 0; i < npages; i++) {
+        if (mappages(p->pgdir, (void *)(addr + i * PGSIZE), PGSIZE, seg->pages[first_page + i], perm) < 0) {
+            // Roll back partial mappings without freeing the shared backing pages.
+            shm_unmap_pages(p->pgdir, addr, i);
+            // I don't know why i have to do this but gpt says so...explain lampussy
+            lcr3(V2P(p->pgdir));
+            release(&shm_table.lock);
+            return -1;
+        }
+    }
+
+    //Record the mapping only after every page succeeds.
+    attachment = &p->shm_attachments[slot];
+
+    attachment->used = 1;
+    attachment->shmid = seg->shmid;
+    attachment->addr = addr;
+    attachment->length = (uint)length;
+    attachment->offset = offset;
+    attachment->prot = prot;
+    attachment->flags = flags;
+
+    seg->tot_attached++;
+
+    // Invalidate stale TLB translations.
+    // I don't know why i have to do this but gpt says so...explain lampussy
+    lcr3(V2P(p->pgdir));
+
+    release(&shm_table.lock);
+    return (int)addr;
+}
+
+
+
 

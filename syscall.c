@@ -109,6 +109,7 @@ extern int sys_shmdt(void);
 extern int sys_shmctl(void);
 extern int sys_shmopen(void);
 extern int sys_shmunlink(void);
+extern int sys_shmmmap(void);
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -138,6 +139,7 @@ static int (*syscalls[])(void) = {
 [SYS_shmctl]  sys_shmctl,
 [SYS_shmopen] sys_shmopen,
 [SYS_shmunlink] sys_shmunlink,
+[SYS_shmmmap]  sys_shmmmap,
 };
 
 void

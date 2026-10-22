@@ -66,7 +66,7 @@ shm_lookup(int shmid , int include_deleted) {
 }
 
 //Given the pgdir , addr and no of pages...unmap all the pages from the procs pgdir.
-static void
+void
 shm_unmap_pages(pde_t *pgdir, uint addr, uint npages)
 {
     uint i;
@@ -126,31 +126,23 @@ shm_detach_from_pgdir(struct proc *p, pde_t *pgdir)
         seg = shm_lookup(attachment->shmid, 1);
 
         if (seg != 0) {
-            npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
-
-            shm_unmap_pages(
-                pgdir,
-                attachment->addr,
-                npages
-            );
-
-            if (seg->tot_attached > 0)
-                seg->tot_attached--;
+            npages = (attachment->length + PGSIZE - 1) / PGSIZE;
+            shm_unmap_pages(pgdir, attachment->addr, npages);
+            if (seg->tot_attached > 0) seg->tot_attached--;
 
             if (seg->marked_delete &&
-                seg->tot_attached == 0) {
+                seg->tot_attached == 0 &&
+                (!seg->is_posix || seg->open_refs == 0)) {
                 shm_free(seg);
-                }
+            }
         }
-
         memset(attachment, 0, sizeof(*attachment));
     }
-
     release(&shm_table.lock);
 }
 
 //Checks if the shared memory segment occupied overlaps with any other existing shared memory segment
-static int
+int
 shm_addr_free(struct proc *p, uint addr, uint npages)
 {
     struct shmseg *other;
@@ -191,7 +183,7 @@ shm_addr_free(struct proc *p, uint addr, uint npages)
         other_addr = attachment->addr;
 
         other_npages =
-            (other->shm_size + PGSIZE - 1) / PGSIZE;
+            (attachment->length + PGSIZE - 1) / PGSIZE;
 
         if (other_npages == 0)
             continue;
@@ -680,7 +672,7 @@ int shm_dt(uint shmaddr)
         return -1;
     }
 
-    npages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
+    npages = (attachment->length + PGSIZE - 1) / PGSIZE;
 
     shm_unmap_pages(p->pgdir, attachment->addr, npages);
 
@@ -689,7 +681,8 @@ int shm_dt(uint shmaddr)
     if (seg->tot_attached > 0)
         seg->tot_attached--;
 
-    if (seg->marked_delete && seg->tot_attached == 0)
+    if (seg->marked_delete && seg->tot_attached == 0 &&
+        (!seg->is_posix || seg->open_refs == 0))
         shm_free(seg);
 
     release(&shm_table.lock);
@@ -774,7 +767,8 @@ shm_ctl(int shmid, int cmd, void *buf)
 
         seg->marked_delete = 1;
 
-        if (seg->tot_attached == 0)
+        if (seg->tot_attached == 0 &&
+            (!seg->is_posix || seg->open_refs == 0))
             shm_free(seg);
 
         release(&shm_table.lock);
@@ -878,18 +872,16 @@ shm_fork(struct proc *parent, struct proc *child)
     struct shmseg *seg;
     uint npages;
     uint mapped;
+    int perm;
 
     //Init the child proc's shm_attachment table
-    memset(child->shm_attachments, 0,
-        sizeof(child->shm_attachments));
+    memset(child->shm_attachments, 0, sizeof(child->shm_attachments));
 
     acquire(&shm_table.lock);
-
     //Copy the parent's shm mapping to the child aswell.
     for (i = 0; i < SHM_MAX_ATTACHED; i++) {
         //Only valid parent attachements mapped into child.
-        if (!parent->shm_attachments[i].used)
-          continue;
+        if (!parent->shm_attachments[i].used) continue;
 
         seg = 0;
         //search for the segment in global shm_table and if present init the seg
@@ -910,6 +902,9 @@ shm_fork(struct proc *parent, struct proc *child)
         mapped = 0;
 
         //Map the parent's shared segment to the child's shm_attachments table using same VA as parent.
+        perm = PTE_U;
+        if (parent->shm_attachments[i].prot & PROT_WRITE) perm |= PTE_W;
+
         for (j = 0; j < npages; j++) {
           uint va = parent->shm_attachments[i].addr
                     + j * PGSIZE;
@@ -917,7 +912,7 @@ shm_fork(struct proc *parent, struct proc *child)
           //Rollback if mapping not possible.
           if (mappages(child->pgdir, (void *)va,
                        PGSIZE, seg->pages[j],
-                       PTE_U | PTE_W) < 0) {
+                       perm) < 0) {
             shm_unmap_pages(child->pgdir,
                             parent->shm_attachments[i].addr,
                             mapped);

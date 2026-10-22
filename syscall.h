@@ -26,3 +26,4 @@
 #define SYS_shmctl 25
 #define SYS_shmopen 26
 #define SYS_shmunlink 27
+#define SYS_shmmmap 28
