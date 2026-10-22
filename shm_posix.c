@@ -391,6 +391,80 @@ int shm_mmap(int fd, uint requested_addr, int length, int prot, int flags, uint 
     return (int)addr;
 }
 
+int ftruncate(int fd, int length) {
+    struct proc *p = myproc();
+    if (p == 0 || fd < 0 || fd >= NOFILE || p->ofile[fd] == 0)
+        return -1;
 
+    struct file *f = p->ofile[fd];
+    if (f->type != FD_SHM)
+        return -1;
 
+    acquire(&shm_table.lock);
+    struct shmseg *seg = f->shm;
+    if (seg == 0) {
+        release(&shm_table.lock);
+        return -1;
+    }
 
+    int new_pages = (length + PGSIZE - 1) / PGSIZE;
+    int old_pages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
+
+    // Check if the new size is valid
+    if (length < 0 || length > SHM_MAX_PAGES * PGSIZE) {
+        release(&shm_table.lock);
+        return -1;
+    }
+    
+    //trivial case
+    if (length == seg->shm_size) {
+        release(&shm_table.lock);
+        return 0;
+    }
+
+    //check this once
+    if (length == 0) {
+        // If length is zero, free all pages
+        shm_free_pages(seg);
+        seg->shm_size = 0;
+        release(&shm_table.lock);
+        return 0;
+    }
+
+    if (new_pages > old_pages) {
+        // Allocate new pages
+        for (int i = old_pages; i < new_pages; i++) {
+            char *mem = kalloc();
+            if (mem == 0) {
+                // Rollback previously allocated pages on failure
+                for (int j = old_pages; j < i; j++) {
+                    kfree((char *)seg->pages[j]);
+                    seg->pages[j] = 0;
+                }
+                release(&shm_table.lock);
+                return -1;
+            }
+            memset(mem, 0, PGSIZE);
+            seg->pages[i] = V2P(mem);
+        }
+    }
+
+    if (new_pages < old_pages) {
+        // Free pages that are no longer needed
+        for (int i = new_pages; i < old_pages; i++) {
+            if (seg->pages[i] != 0) {
+                kfree((char *)P2V(seg->pages[i]));
+                seg->pages[i] = 0;
+            }
+        }
+    }
+
+    //***need to implement logic for cases where
+    //***number of pages is same but size if different, mmap will need to be checked 
+    
+    // Update the size of the shared memory segment
+    seg->shm_size = length;
+    
+    release(&shm_table.lock);
+    return 0;
+}

@@ -236,3 +236,14 @@ sys_shmmmap(void)
   if (offset < 0) return -1;
   return shm_mmap(fd, (uint)addr, length, prot, flags, (uint)offset);
 }
+
+int 
+sys_ftruncate(void) {
+  int fd;
+  if (argint(0, &fd) < 0)
+    return -1;
+
+  struct proc *p = myproc();
+  if (p == 0 || fd < 0 || fd >= NOFILE || p->ofile[fd] == 0)
+    return -1;
+}
