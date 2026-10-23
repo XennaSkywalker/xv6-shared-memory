@@ -363,7 +363,7 @@ int shm_mmap(int fd, uint requested_addr, int length, int prot, int flags, uint 
         if (mappages(p->pgdir, (void *)(addr + i * PGSIZE), PGSIZE, seg->pages[first_page + i], perm) < 0) {
             // Roll back partial mappings without freeing the shared backing pages.
             shm_unmap_pages(p->pgdir, addr, i);
-            // I don't know why i have to do this but gpt says so...explain lampussy
+            //load the updated page directory base register
             lcr3(V2P(p->pgdir));
             release(&shm_table.lock);
             return -1;
@@ -384,7 +384,7 @@ int shm_mmap(int fd, uint requested_addr, int length, int prot, int flags, uint 
     seg->tot_attached++;
 
     // Invalidate stale TLB translations.
-    // I don't know why i have to do this but gpt says so...explain lampussy
+    //load the updated page directory base register
     lcr3(V2P(p->pgdir));
 
     release(&shm_table.lock);
@@ -397,7 +397,7 @@ int ftruncate(int fd, int length) {
         return -1;
 
     struct file *f = p->ofile[fd];
-    if (f->type != FD_SHM)
+    if (f->type != FD_SHM || !f->writable)
         return -1;
 
     acquire(&shm_table.lock);
@@ -407,14 +407,22 @@ int ftruncate(int fd, int length) {
         return -1;
     }
 
-    int new_pages = (length + PGSIZE - 1) / PGSIZE;
-    int old_pages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
-
     // Check if the new size is valid
     if (length < 0 || length > SHM_MAX_PAGES * PGSIZE) {
         release(&shm_table.lock);
         return -1;
     }
+
+    int new_pages = (length + PGSIZE - 1) / PGSIZE;
+
+    if (new_pages > SHM_MAX_PAGES) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    int old_pages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
+
+    // *** IMPORTANT: handle the active mappings in all processes that have this shared memory segment attached. ***
     
     //trivial case
     if (length == seg->shm_size) {
@@ -422,23 +430,22 @@ int ftruncate(int fd, int length) {
         return 0;
     }
 
-    //check this once
-    if (length == 0) {
-        // If length is zero, free all pages
+    else if (length == 0) {
+        //free all pages and ***TBD unmap them from all processes that have this segment attached
         shm_free_pages(seg);
         seg->shm_size = 0;
         release(&shm_table.lock);
         return 0;
     }
 
-    if (new_pages > old_pages) {
-        // Allocate new pages
+    else if (new_pages > old_pages) {
+        //alloc new pages and zero out the remaining portion of the last page
         for (int i = old_pages; i < new_pages; i++) {
             char *mem = kalloc();
             if (mem == 0) {
-                // Rollback previously allocated pages on failure
+                //rollback previously allocated pages on failure
                 for (int j = old_pages; j < i; j++) {
-                    kfree((char *)seg->pages[j]);
+                    kfree(P2V(seg->pages[j]));
                     seg->pages[j] = 0;
                 }
                 release(&shm_table.lock);
@@ -447,24 +454,37 @@ int ftruncate(int fd, int length) {
             memset(mem, 0, PGSIZE);
             seg->pages[i] = V2P(mem);
         }
+
+        if (old_pages > 0 &&  seg->shm_size % PGSIZE != 0)
+            memset((char *)P2V(seg->pages[old_pages - 1]) + seg->shm_size % PGSIZE, 0,  PGSIZE - seg->shm_size % PGSIZE);
     }
 
-    if (new_pages < old_pages) {
-        // Free pages that are no longer needed
+    else if (new_pages < old_pages && length % PGSIZE != 0) {
+        //free pages beyond new_pages and zero out the remaining portion of the last page
         for (int i = new_pages; i < old_pages; i++) {
             if (seg->pages[i] != 0) {
                 kfree((char *)P2V(seg->pages[i]));
                 seg->pages[i] = 0;
             }
         }
+
+        if (new_pages > 0)
+            memset((char *)P2V(seg->pages[new_pages - 1]) + length % PGSIZE, 0, PGSIZE - length % PGSIZE);   
     }
 
-    //***need to implement logic for cases where
-    //***number of pages is same but size if different, mmap will need to be checked 
+    else if (new_pages == old_pages && length > seg->shm_size) {
+        // If the number of pages is the same but the size is increasing, zero out the new portion of the segment
+        memset((char *)P2V(seg->pages[old_pages - 1]) + seg->shm_size % PGSIZE, 0, length - seg->shm_size);
+    }
+
+    else if (new_pages == old_pages && length < seg->shm_size) {
+        // If the number of pages is the same but the size is decreasing, we don't need to free any pages, just update the size
+        memset((char *)P2V(seg->pages[old_pages - 1]) + length % PGSIZE, 0, PGSIZE - length % PGSIZE);
+    }
     
     // Update the size of the shared memory segment
     seg->shm_size = length;
-    
     release(&shm_table.lock);
+
     return 0;
 }

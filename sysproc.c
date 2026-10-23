@@ -240,9 +240,15 @@ sys_shmmmap(void)
 int 
 sys_ftruncate(void) {
   int fd;
+  int length;
+
   if (argint(0, &fd) < 0)
     return -1;
 
+  if (argint(1, &length) < 0)
+    return -1;
+
+    
   struct proc *p = myproc();
   if (p == 0 || fd < 0 || fd >= NOFILE || p->ofile[fd] == 0)
     return -1;
