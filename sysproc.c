@@ -127,7 +127,7 @@ sys_shmat(void)
   if (argint(2, &shmflg) < 0)
     return -1;
 
-  return shm_at(shmid, addr, shmflg);
+  return shm_at(shmid, (uint) addr, shmflg);
 }
 
 int
@@ -135,10 +135,10 @@ sys_shmdt(void)
 {
   uint shmaddr;
 
-  if (argint(0, (int*)&shmaddr) < 0)
+  if (argint(0, &shmaddr) < 0)
     return -1;
 
-  return shm_dt(shmaddr);
+  return shm_dt((uint) shmaddr);
 
 }
 
@@ -235,6 +235,19 @@ sys_shmmmap(void)
 
   if (offset < 0) return -1;
   return shm_mmap(fd, (uint)addr, length, prot, flags, (uint)offset);
+}
+
+int sys_shmmunmap(void) {
+    uint addr;
+    int length;
+
+    if (argint(0, &addr) < 0)
+        return -1;
+
+    if (argint(1, &length) < 0)
+        return -1;
+
+    return shm_munmap((uint) addr, length);
 }
 
 int 

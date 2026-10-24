@@ -31,6 +31,7 @@ int shmctl(int shmid, int cmd, void *buf);
 int shmopen(const char* name, int oflag, int mode);
 int shmunlink(const char* name);
 int shmmmap(char *addr, int length, int prot, int flags, int fd, int offset);
+int shmmunmap(uint addr, int length);
 int ftruncate(int fd, int offset);
 
 // ulib.c

@@ -27,4 +27,5 @@
 #define SYS_shmopen 26
 #define SYS_shmunlink 27
 #define SYS_shmmmap 28
-#define SYS_ftruncate 28
+#define SYS_shmmunmap 29
+#define SYS_ftruncate 30

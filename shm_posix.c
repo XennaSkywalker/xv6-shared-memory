@@ -288,6 +288,7 @@ int shm_mmap(int fd, uint requested_addr, int length, int prot, int flags, uint 
     if ((prot & PROT_READ) && !f->readable) return -1;
 
     // Calculate the mapping size.
+    if (length > SHM_MAX_PAGES * PGSIZE) return -1;
     map_length = ((uint)length + PGSIZE - 1) & ~(PGSIZE - 1);
     npages = map_length / PGSIZE;
     first_page = offset / PGSIZE;
@@ -335,7 +336,8 @@ int shm_mmap(int fd, uint requested_addr, int length, int prot, int flags, uint 
             release(&shm_table.lock);
             return -1;
         }
-        if (shm_addr_free(p, addr, npages)) found = 1;
+        if (shm_addr_free(p, addr, npages))
+            found = 1;
     }
     else {
         addr = SHM_BASE;
@@ -344,7 +346,7 @@ int shm_mmap(int fd, uint requested_addr, int length, int prot, int flags, uint 
                 found = 1;
                 break;
             }
-            if (addr > KERNBASE - PGSIZE) break;
+
             addr += PGSIZE;
        }
     }
@@ -389,6 +391,72 @@ int shm_mmap(int fd, uint requested_addr, int length, int prot, int flags, uint 
 
     release(&shm_table.lock);
     return (int)addr;
+}
+
+int shm_munmap(uint addr, int length) {
+    struct proc *p;
+    struct shm_attachment *attachment;
+    struct shmseg *seg;
+    uint npages, i;
+
+    p = myproc();
+    if (p == 0)
+        return -1;
+
+    // Validate arguments.
+    if (length <= 0)
+        return -1;
+    if (addr % PGSIZE != 0)
+        return -1;
+    if ((uint)length > SHM_MAX_PAGES * PGSIZE)
+        return -1;
+
+    npages = ((uint)length + PGSIZE - 1) / PGSIZE;
+
+    // Find the attachment corresponding to the given address.
+    attachment = 0;
+    for (i = 0; i < SHM_MAX_ATTACHED; i++) {
+        if (p->shm_attachments[i].used && p->shm_attachments[i].addr == addr) {
+            attachment = &p->shm_attachments[i];
+            break;
+        }
+    }
+    //If there are no mappings in the specified address range, then munmap() has no effect.
+    if (attachment == 0)
+        return 0;
+
+    // Validate that the length matches the attachment's length.
+    if (npages != ((attachment->length + PGSIZE - 1) / PGSIZE))
+        return -1;
+
+    acquire(&shm_table.lock);
+
+    seg = shm_lookup(attachment->shmid, 1);
+    if (seg == 0) {
+        release(&shm_table.lock);
+        return -1;
+    }
+
+    // Unmap the pages from the process's page table.
+    shm_unmap_pages(p->pgdir, addr, npages);
+
+    // Decrement the total attached count for the segment.
+    if (seg->tot_attached > 0) seg->tot_attached--;
+
+    // If the segment is marked for deletion and has no more attachments, free it.
+    if (seg->marked_delete && seg->tot_attached == 0 && (!seg->is_posix || seg->open_refs == 0)) {
+        shm_free(seg);
+    }
+
+    // Clear the attachment entry.
+    memset(attachment, 0, sizeof(*attachment));
+
+    release(&shm_table.lock);
+
+    // Invalidate stale TLB translations.
+    lcr3(V2P(p->pgdir));
+
+    return 0;
 }
 
 int ftruncate(int fd, int length) {

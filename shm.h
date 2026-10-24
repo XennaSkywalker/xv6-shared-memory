@@ -77,5 +77,7 @@ int shm_alloc_id_locked(void);
 int shm_alloc_id(void);
 int shm_unlink(const char* name);
 int shm_mmap(int fd, uint addr, int length, int prot, int flags, uint offset);
+int shm_munmap(uint addr, int length);
+int ftruncate(int fd, int length);
 
 #endif

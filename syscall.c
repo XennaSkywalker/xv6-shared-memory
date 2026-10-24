@@ -110,6 +110,7 @@ extern int sys_shmctl(void);
 extern int sys_shmopen(void);
 extern int sys_shmunlink(void);
 extern int sys_shmmmap(void);
+extern int sys_shmmunmap(void);
 extern int sys_ftruncate(void);
 
 static int (*syscalls[])(void) = {
@@ -141,6 +142,7 @@ static int (*syscalls[])(void) = {
 [SYS_shmopen] sys_shmopen,
 [SYS_shmunlink] sys_shmunlink,
 [SYS_shmmmap]  sys_shmmmap,
+[SYS_shmmunmap] sys_shmmunmap,
 [SYS_ftruncate] sys_ftruncate,
 };
 
