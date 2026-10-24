@@ -23,7 +23,7 @@ extern struct shm_table shm_table;
 
 //we dont enforce permissions rn, need to enforce them
 struct shmseg {
-    int used; 
+    int used;
     int shmid;
     int key;
     uint shm_size;

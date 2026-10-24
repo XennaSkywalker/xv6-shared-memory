@@ -225,7 +225,7 @@ shm_init(void)
         memset(shm_table.seg[i].name, 0,
                sizeof(shm_table.seg[i].name));
         shm_table.seg[i].open_refs = 0;
-        
+
         for (j = 0; j < SHM_MAX_PAGES; j++)
             shm_table.seg[i].pages[j] = 0;
     }
@@ -249,8 +249,8 @@ shm_find_by_key(int key)
 }
 
 //caller shouldve acquired lock on shm_table
-//wont find a seg thats marked for deletion 
-//will need a way to find seg marked for deletion while implementing shmctl(IPC_RMID) 
+//wont find a seg thats marked for deletion
+//will need a way to find seg marked for deletion while implementing shmctl(IPC_RMID)
 struct shmseg*
 shm_find_by_shmid(int shmid)
 {
@@ -285,7 +285,7 @@ shm_get(int key, uint size, int shmflg)
         release(&shm_table.lock);
         return shmid;
     }
-    
+
     //find segment
     seg = shm_find_by_key(key);
 
@@ -346,7 +346,7 @@ shm_create(int key, uint size, int permissions)
     }
 
     shmid = shm_alloc_id_locked();
-  
+
     shm_table.seg[i].used = 1;
     shm_table.seg[i].shmid = shmid;
     shm_table.seg[i].key = key;
@@ -361,12 +361,12 @@ shm_create(int key, uint size, int permissions)
 
     for (j = 0; j < SHM_MAX_PAGES; j++)
         shm_table.seg[i].pages[j] = 0;
-    
+
     if (shm_alloc_pages(&shm_table.seg[i]) < 0) {
       shm_free(&shm_table.seg[i]);
       return -1;
     }
-    
+
     return shmid;
 }
 
@@ -422,7 +422,7 @@ shm_alloc_pages(struct shmseg *seg)
     int i;
     int npages;
     char *mem;
-    
+
     if (seg == 0)
         return -1;
 

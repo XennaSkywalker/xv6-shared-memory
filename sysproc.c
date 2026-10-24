@@ -250,7 +250,7 @@ int sys_shmmunmap(void) {
     return shm_munmap((uint) addr, length);
 }
 
-int 
+int
 sys_ftruncate(void) {
   int fd;
   int length;
@@ -261,7 +261,7 @@ sys_ftruncate(void) {
   if (argint(1, &length) < 0)
     return -1;
 
-    
+
   struct proc *p = myproc();
   if (p == 0 || fd < 0 || fd >= NOFILE || p->ofile[fd] == 0)
     return -1;

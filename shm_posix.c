@@ -491,7 +491,7 @@ int ftruncate(int fd, int length) {
     int old_pages = (seg->shm_size + PGSIZE - 1) / PGSIZE;
 
     // *** IMPORTANT: handle the active mappings in all processes that have this shared memory segment attached. ***
-    
+
     //trivial case
     if (length == seg->shm_size) {
         release(&shm_table.lock);
@@ -536,8 +536,8 @@ int ftruncate(int fd, int length) {
             }
         }
 
-        if (new_pages > 0)
-            memset((char *)P2V(seg->pages[new_pages - 1]) + length % PGSIZE, 0, PGSIZE - length % PGSIZE);   
+        if (new_pages > 0 && length % PGSIZE != 0)
+            memset((char *)P2V(seg->pages[new_pages - 1]) + length % PGSIZE, 0, PGSIZE - length % PGSIZE);
     }
 
     else if (new_pages == old_pages && length > seg->shm_size) {
@@ -549,7 +549,7 @@ int ftruncate(int fd, int length) {
         // If the number of pages is the same but the size is decreasing, we don't need to free any pages, just update the size
         memset((char *)P2V(seg->pages[old_pages - 1]) + length % PGSIZE, 0, PGSIZE - length % PGSIZE);
     }
-    
+
     // Update the size of the shared memory segment
     seg->shm_size = length;
     release(&shm_table.lock);
